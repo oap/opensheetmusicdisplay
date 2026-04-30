@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jianpu Player Demo</title>
+    <!-- Include the minified built OSMD module -->
+    <script src="js/opensheetmusicdisplay.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        #osmd-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>OpenSheetMusicDisplay: Jianpu Demo</h1>
+    <div id="osmd-container"></div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            // Initialize OpenSheetMusicDisplay inside the container
+            var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd-container", {
+                autoResize: true,
+                backend: "svg",
+                drawingParameters: "default", // You could also use "compact" or "compacttight"
+                rules: {
+                    JianpuAlwaysUsed: true // Force Jianpu formatting
+                }
+            });
+
+            // Load the Twinkle Twinkle Little Star MusicXML and render it
+            osmd.load("Twinkle_Twinkle_Little_Star.musicxml").then(function () {
+                console.log("MusicXML loaded successfully");
+                osmd.render();
+                console.log("Jianpu rendered successfully");
+            }).catch(function (error) {
+                console.error("Error loading or rendering MusicXML:", error);
+            });
+        });
+    </script>
+</body>
+</html>
