@@ -27,6 +27,19 @@
 <body>
     <h1>OpenSheetMusicDisplay: Jianpu Demo</h1>
 
+    <!-- Sample Selector -->
+    <div id="sample-selector-container" style="margin-bottom: 20px;">
+        <label for="selectSample">Select a sample: </label>
+        <select id="selectSample" style="font-size: 16px; padding: 5px;">
+            <option value="Twinkle_Twinkle_Little_Star.musicxml">Twinkle Twinkle Little Star</option>
+            <option value="/test_jianpu_simple.musicxml">Jianpu Simple</option>
+            <option value="/test_jianpu_scale_3measures.musicxml">Jianpu Scale</option>
+            <option value="/test_jianpu_voices_2measures_simple.musicxml">Jianpu Voices</option>
+            <option value="/MuzioClementi_SonatinaOpus36No1_Part1.xml">Clementi Sonatina</option>
+            <option value="/JohannSebastianBach_Air.xml">Bach Air</option>
+        </select>
+    </div>
+
     <!-- Player Controls -->
     <div id="controls" style="margin-bottom: 20px;">
         <button id="btn-play" style="font-size: 16px; padding: 5px 15px;">Play</button>
@@ -60,8 +73,22 @@
             });
             window.osmd = osmd; // expose for player.js
 
-            // Load the Twinkle Twinkle Little Star MusicXML and render it
-            osmd.load("Twinkle_Twinkle_Little_Star.musicxml").then(function () {
+            var sampleUrl = "Twinkle_Twinkle_Little_Star.musicxml";
+            var urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has("sample")) {
+                sampleUrl = urlParams.get("sample");
+            }
+            
+            var selectSample = document.getElementById("selectSample");
+            if (selectSample) {
+                selectSample.value = sampleUrl;
+                selectSample.addEventListener("change", function(e) {
+                    window.location.search = "?sample=" + encodeURIComponent(e.target.value);
+                });
+            }
+
+            // Load the MusicXML and render it
+            osmd.load(sampleUrl).then(function () {
                 console.log("MusicXML loaded successfully");
                 osmd.render();
                 console.log("Jianpu rendered successfully");
