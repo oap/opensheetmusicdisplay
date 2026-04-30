@@ -72,7 +72,7 @@ export class GraphicalNote extends GraphicalObject {
     }
 
     public get ParentMusicPage(): GraphicalMusicPage {
-      return this.parentVoiceEntry.parentStaffEntry.parentMeasure.ParentMusicSystem.Parent;
+      return this.parentVoiceEntry.parentStaffEntry.parentMeasure.ParentMusicSystem?.Parent;
     }
 
     /** Get a GraphicalNote from a Note. Use osmd.rules as the second parameter (instance reference).
@@ -80,4 +80,68 @@ export class GraphicalNote extends GraphicalObject {
     public static FromNote(note: Note, rules: EngravingRules): GraphicalNote {
       return rules.NoteToGraphicalNoteMap.getValue(note.NoteToGraphicalNoteObjectId);
     }
+
+    public ToStringShort(octaveOffset: number = 0): string {
+      return this.sourceNote?.ToStringShort(octaveOffset);
+    }
+    public get ToStringShortGet(): string {
+      return this.ToStringShort(0);
+    }
+
+    public getLyricsSVGs(): HTMLElement[] {
+      const lyricsEntries: HTMLElement[] = [];
+      if (!this.parentVoiceEntry) {
+        return lyricsEntries;
+      }
+      for (const lyricsEntry of this.parentVoiceEntry.parentStaffEntry.LyricsEntries) {
+        lyricsEntries.push(lyricsEntry.GraphicalLabel?.SVGNode as HTMLElement);
+      }
+      return lyricsEntries;
+    }
+
+    /** Change the color of a note (without re-rendering). See ColoringOptions for options like applyToBeams etc.
+     * This requires the SVG backend (default, instead of canvas backend).
+     */
+    public setColor(color: string, coloringOptions: ColoringOptions): void {
+      // implemented in VexFlowGraphicalNote
+    }
+
+    /** Toggle visibility of the note, making it and its stem and beams invisible for `false`.
+     * By default, this will also hide the note's slurs and ties (see visibilityOptions).
+     * (This only works with the default SVG backend, not with the Canvas backend/renderer)
+     * To get a GraphicalNote from a Note, use osmd.EngravingRules.GNote(note).
+     */
+    public setVisible(visible: boolean, visibilityOptions: VisibilityOptions = {}): void {
+      // implemented in VexFlowGraphicalNote
+    }
+}
+
+/** Coloring options for VexFlowGraphicalNote.setColor(). */
+export interface ColoringOptions {
+  applyToBeams?: boolean;
+  applyToFlag?: boolean;
+  applyToLedgerLines?: boolean;
+  applyToLyrics?: boolean;
+  applyToModifiers?: boolean;
+  applyToMultiRestMeasure?: boolean;
+  /** Whether to apply the color to the number indicating how many measures the rest lasts (not the measure number). */
+  applyToMultiRestMeasureNumber?: boolean;
+  /** Whether to apply the color to the wide bar within the stafflines (looks about like `|----|`). */
+  applyToMultiRestMeasureRestBar?: boolean;
+  applyToNoteheads?: boolean;
+  applyToSlurs?: boolean;
+  applyToStem?: boolean;
+  applyToTies?: boolean;
+}
+
+/** Visibility options for VexFlowGraphicalNote.setVisible().
+ * E.g. if setVisible(false, {applyToTies: false}), everything about a note will be invisible except its ties.
+ * */
+export interface VisibilityOptions {
+  applyToBeams?: boolean;
+  applyToLedgerLines?: boolean;
+  applyToNotehead?: boolean;
+  applyToSlurs?: boolean;
+  applyToStem?: boolean;
+  applyToTies?: boolean;
 }

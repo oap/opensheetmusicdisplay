@@ -94,6 +94,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         // HTML Elements in the page
         divControls,
         zoomControls,
+        zoomControlsButtons,
         header,
         err,
         error_tr,
@@ -118,8 +119,10 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         debugClearBtn,
         selectPageSizes,
         printPdfBtns,
+        darkModeBtn,
         transpose,
-        transposeBtn;
+        transposeBtn,
+        versionDiv;
     
     // manage option setting and resetting for specific samples, e.g. in the autobeam sample autobeam is set to true, otherwise reset to previous state
     // TODO design a more elegant option state saving & restoring system, though that requires saving the options state in OSMD
@@ -144,6 +147,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
     var showPageFormatControl = false;
     var showZoomControl = true;
     var showHeader = true;
+    var showVersionHeader = true;
     var showDebugControls = false;
 
     document.title = "OpenSheetMusicDisplay Demo";
@@ -159,8 +163,10 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         var paramShowExportPdfControl = findGetParameter('showExportPdfControl');
         var paramShowZoomControl = findGetParameter('showZoomControl');
         var paramShowHeader = findGetParameter('showHeader');
+        var paramShowVersionHeader = findGetParameter('showVersionHeader'); // versionDiv
         var paramZoom = findGetParameter('zoom');
         var paramOverflow = findGetParameter('overflow');
+        var paramDarkMode = findGetParameter('darkMode');
         var paramOpenUrl = findGetParameter('openUrl');
         var paramDebugControls = findGetParameter('debugControls');
 
@@ -177,6 +183,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         var paramSingleHorizontalStaffline = findGetParameter('singleHorizontalStaffline');
 
         showHeader = (paramShowHeader !== '0');
+        showVersionHeader = (paramShowVersionHeader !== '0');
         showControls = false;
         if (paramEmbedded) {
             showControls = paramShowControls !== '0';
@@ -234,6 +241,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         error_tr = document.getElementById("error-tr");
         zoomDivs = [];
         zoomDivs.push(document.getElementById("zoom-str"));
+        zoomDivs.push(document.getElementById("zoom-str-portrait"));
         zoomDivs.push(document.getElementById("zoom-str-optional"));
         custom = document.createElement("option");
         selectSample = document.getElementById("selectSample");
@@ -250,7 +258,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         if (horizontalScrolling) {
             canvas.style.overflowX = 'auto'; // enable horizontal scrolling
         }
-        //canvas.id = 'osmdCanvasDiv';
+        canvas.id = 'osmdCanvasDiv';
         //canvas.style.overflowX = 'auto'; // enable horizontal scrolling
         previousCursorBtn = document.getElementById("previous-cursor-btn");
         nextCursorBtn = document.getElementById("next-cursor-btn");
@@ -268,8 +276,11 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         printPdfBtns = [];
         printPdfBtns.push(document.getElementById("print-pdf-btn"));
         printPdfBtns.push(document.getElementById("print-pdf-btn-optional"));
+        darkModeBtn = document.getElementById("dark-mode-btn");
         transpose = document.getElementById('transpose');
         transposeBtn = document.getElementById('transpose-btn');
+        versionDiv = document.getElementById('versionDiv');
+        zoomControlsButtons = document.getElementById('zoomControlsButtons')
 
         //var defaultDisplayVisibleValue = "block"; // TODO in some browsers flow could be the better/default value
         var defaultVisibilityValue = "visible";
@@ -280,15 +291,87 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
             ];
             for (var i=0; i<elementsToEnable.length; i++) {
                 if (elementsToEnable[i]) { // make sure this element is not null/exists in the index.html, e.g. github.io demo has different index.html
-                    if (elementsToEnable[i].style) {
-                        elementsToEnable[i].style.visibility = defaultVisibilityValue;
-                        elementsToEnable[i].style.opacity = 1.0;
+                    const elementToEnable = elementsToEnable[i];
+                    if (elementToEnable.style) {
+                        elementToEnable.style.visibility = defaultVisibilityValue;
+                        if (elementToEnable.style.opacity === 0) {
+                            elementToEnable.style.opacity = 1.0;
+                        }
                     }
                 }
             }
         } else {
             if (divControls) {
                 divControls.style.display = "none";
+            }
+        }
+        // detect mobile portrait mode (small screen -> reduce zoom etc)
+        const portrait = window.matchMedia("(orientation: portrait)").matches;
+        // console.log(`is portrait mode: ${portrait}`);
+        if (window.outerWidth < 768) {
+            zoom = 0.60; // ~60% is good for iPhone SE (browser simulated device dimensions)
+
+            // collapsible behavior
+            var coll = document.getElementsByClassName("portraitCollapsible");
+            for (var i = 0; i < coll.length; i++) {
+                var content = coll[i].nextElementSibling;
+                content.style.display = "none";
+
+            coll[i].addEventListener("click", function() {
+                this.classList.toggle("active");
+                var content = this.nextElementSibling;
+                if (content.style.display === "block") {
+                    content.style.display = "none";
+                } else {
+                    content.style.display = "block";
+                }
+            });
+            }
+            var adSetBtn = document.getElementById("advanced-settings-btn");
+            
+            var advSettings = document.getElementsByClassName("advanced-setting");
+            for(var i = 0; i < advSettings.length; i++){
+                var element = advSettings[i];
+                element.style.display = "none";
+            }
+
+            if (adSetBtn) {
+                adSetBtn.addEventListener("click", function() {
+                    this.classList.toggle("active");
+                    for(var i = 0; i < advSettings.length; i++){
+                        var element = advSettings[i];
+                        if (element.style.display === "block") {
+                            element.style.display = "none";
+                        } else {
+                            element.style.display = "block";
+                        }
+                    }
+                }); 
+            }
+        }
+
+        var slideButton = document.getElementById("slideControlsButton");
+        if (slideButton) {
+            slideButton.onclick=function slideButtonClicked(){
+                var slideContainer = document.getElementById("slideContainer");
+                slideContainer.addEventListener("animationend", function(e){
+                    e.preventDefault();
+    
+                    if(slideContainer.style.animationName == "slide-left"){
+                        divControls.style.display = "block";
+                    }
+                });
+    
+                if(divControls.style.display == "block"){
+                    divControls.style.display = "flex";
+                    slideContainer.style.animation = "0.7s slide-right";
+                    slideContainer.style.animationFillMode = "forwards"
+                    slideButton.style.background = "url('resources/arrow-left-s-line.svg') 50% no-repeat var(--theme-color-light)"
+                    return;
+                }
+                slideContainer.style.animation = "0.7s slide-left"
+                slideContainer.style.animationFillMode = "forwards"
+                slideButton.style.background = "url('resources/arrow-right-s-line.svg') 50% no-repeat var(--theme-color-light)"
             }
         }
 
@@ -305,10 +388,18 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         if (!showHeader) {
             if (header) {
                 header.style.display = 'none';
+                if (versionDiv) {
+                    versionDiv.style.marginTop = "5px"; // default 80px
+                }
             }
         } else {
             if (header) {
                 header.style.opacity = 1.0;
+            }
+        }
+        if (!showVersionHeader) {
+            if (versionDiv) {
+                versionDiv.style.display = 'none';
             }
         }
         // Hide error
@@ -390,7 +481,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
                 selectPageSize.onchange = function (evt) {
                     var value = evt.target.value;
                     openSheetMusicDisplay.setPageFormat(value);
-                    openSheetMusicDisplay.render();
+                    renderAndScrollBack();
                 };
             }
         }
@@ -400,6 +491,15 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
                 printPdfBtn.onclick = function () {
                     createPdf();
                 }
+            }
+        }
+
+        if (darkModeBtn) {
+            darkModeBtn.onclick = function() {
+                osmd.setOptions({
+                    darkMode: !osmd.EngravingRules.DarkModeEnabled // toggle to opposite of current value (on/off)
+                });
+                renderAndScrollBack();
             }
         }
 
@@ -428,14 +528,14 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         if (skylineDebug) {
             skylineDebug.onclick = function () {
                 openSheetMusicDisplay.DrawSkyLine = !openSheetMusicDisplay.DrawSkyLine;
-                openSheetMusicDisplay.render();
+                renderAndScrollBack();
             }
         }
 
         if (bottomlineDebug) {
             bottomlineDebug.onclick = function () {
                 openSheetMusicDisplay.DrawBottomLine = !openSheetMusicDisplay.DrawBottomLine;
-                openSheetMusicDisplay.render();
+                renderAndScrollBack();
             }
         }
 
@@ -495,12 +595,24 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
             // tripletsBracketed: true,
             // tupletsRatioed: true, // unconventional; renders ratios for tuplets (3:2 instead of 3 for triplets)
         });
+        if (portrait) {
+            // reduce title labels/text size etc. as well. E.g. for Mozart string quartet, title wouldn't fit line width otherwise
+            openSheetMusicDisplay.EngravingRules.SheetTitleHeight *= 0.7; // see Mozart String Quartet
+            // reducing size for subtitle/composer/lyricist is probably unnecessary and makes them too small:
+            // openSheetMusicDisplay.EngravingRules.SheetSubtitleHeight *= 0.9;
+            // openSheetMusicDisplay.EngravingRules.SheetComposerHeight *= 0.9;
+            // openSheetMusicDisplay.EngravingRules.SheetAuthorHeight *= 0.9; // affects lyricist label, maybe should be renamed
+        }
         openSheetMusicDisplay.TransposeCalculator = new TransposeCalculator(); // necessary for using osmd.Sheet.Transpose and osmd.Sheet.Instruments[i].Transpose
         //openSheetMusicDisplay.DrawSkyLine = true;
         //openSheetMusicDisplay.DrawBottomLine = true;
         //openSheetMusicDisplay.setDrawBoundingBox("GraphicalLabel", false);
         openSheetMusicDisplay.setLogLevel('info'); // set this to 'debug' if you want to see more detailed control flow information in console
         document.body.appendChild(canvas);
+
+        if (versionDiv) {
+            versionDiv.innerHTML = "OSMD Version: " + openSheetMusicDisplay.Version.replace("-release", "").replace("-dev", "");
+        }
 
         window.addEventListener("keydown", function (e) {
             var event = window.event ? window.event : e;
@@ -552,6 +664,9 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
                 //openSheetMusicDisplay = new OpenSheetMusicDisplay(canvas, { backend: value }); // resets EngravingRules
                 openSheetMusicDisplay.setOptions({backend: value});
                 openSheetMusicDisplay.setLogLevel('info'); // set this to 'debug' if you want to get more detailed control flow information
+                if (openSheetMusicDisplay.graphic) {
+                    openSheetMusicDisplay.renderAndScrollBack();
+                }
             } else {
                 // alternative, doesn't work yet, see setOptions():
                 openSheetMusicDisplay.setOptions({ backend: value });
@@ -568,6 +683,9 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
             }
         }
 
+        if (paramDarkMode) {
+            openSheetMusicDisplay.setOptions({darkMode: true});
+        }
         // TODO after selectSampleOnChange, the resize handler triggers immediately,
         //   so we render twice at the start of the demo.
         //   maybe delay the first osmd render, e.g. when window ready?
@@ -579,6 +697,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
             // if (paramOpenUrl.startsWith("Beethoven")) {
             //     paramOpenUrl.causeError();
             // }
+            paramOpenUrl = decodeURIComponent(paramOpenUrl);
             selectSampleOnChange(paramOpenUrl);
         } else {
             if (openSheetMusicDisplay.getLogLevel() < 2) { // debug or trace
@@ -586,6 +705,23 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
             }
             selectSampleOnChange();
         }
+    }
+
+    /** Re-render and scroll back to previous scroll bar y position in percent.
+     * If the document keeps the same height/length, the scroll bar position will basically be unchanged.
+     * If you just call render() instead of renderAndScrollBack(),
+     *   it will scroll you back to the top of the page, even if you were scrolled to the bottom before. */
+    function renderAndScrollBack() {
+        const previousScrollY = window.scrollY;
+        const previousScrollHeight = document.body.scrollHeight; // height of page
+        const previousScrollYPercent = previousScrollY / previousScrollHeight;
+        openSheetMusicDisplay.render();
+        const newScrollHeight = document.body.scrollHeight; // height of page
+        const newScrollY = newScrollHeight * previousScrollYPercent;
+        window.scrollTo({
+            top: newScrollY,
+            behavior: 'instant' // visually, there is no change in the scroll bar position, as it's the same as before.
+        })
     }
 
     function findGetParameter(parameterName) {
@@ -598,15 +734,23 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
     
         if (parameterName === 'openUrl') {
             let startParameterName = 'openUrl=';
+            let startParameterName2 = 'openURL=';
             let endParameterName = '&endUrl';
+            let endParameterName2 = '&endURL';
             let openUrlIndex = location.search.indexOf(startParameterName);
             if (openUrlIndex < 0) {
-                return undefined;
+                openUrlIndex = location.search.indexOf(startParameterName2);
+                if (openUrlIndex < 0) {
+                    return undefined;
+                }
             }
             let endIndex = location.search.indexOf(endParameterName) + endParameterName.length;
             if (endIndex < 0) {
-                console.log("[OSMD] If using openUrl as a parameter, you have to end it with '&endUrl'. openUrl parameter omitted.");
-                return undefined;
+                endIndex = location.search.indexOf(endParameterName2) + endParameterName2.length;
+                if (endIndex < 0) {
+                    console.log("[OSMD] If using openUrl as a parameter, you have to end it with '&endUrl'. openUrl parameter omitted.");
+                    return undefined;
+                }
             }
             let urlString = location.search.substring(openUrlIndex + startParameterName.length, endIndex - endParameterName.length);
             //console.log("openUrl: " + urlString);
@@ -657,8 +801,9 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
                 // This gives you access to the osmd object in the console. Do not use in production code
                 window.osmd = openSheetMusicDisplay;
                 openSheetMusicDisplay.zoom = zoom;
+                // openSheetMusicDisplay.Sheet.Instruments[0].Staves[1].Visible = false;
                 //openSheetMusicDisplay.Sheet.Transpose = 3; // try transposing between load and first render if you have transpose issues with F# etc
-                return openSheetMusicDisplay.render();
+                renderAndScrollBack();
             },
             function (e) {
                 errorLoadingOrRenderingSheet(e, "rendering");
@@ -795,7 +940,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         disable();
         window.setTimeout(function () {
             openSheetMusicDisplay.Zoom = zoom;
-            openSheetMusicDisplay.render();
+            renderAndScrollBack();
             enable();
         }, 0);
     }
@@ -804,7 +949,7 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         disable();
         window.setTimeout(function () {
             if (openSheetMusicDisplay.IsReadyToRender()) {
-                openSheetMusicDisplay.render();
+                renderAndScrollBack();
             } else {
                 console.log("[OSMD demo] Loses context!"); // TODO not sure that this message is reasonable, renders fine anyways. maybe vexflow context lost?
                 selectSampleOnChange(); // reload sample e.g. after osmd.clear()
@@ -854,12 +999,84 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
     }
 
     /**
-     * Creates a Pdf of the currently rendered MusicXML
-     * @param pdfName if no name is given, the composer and title of the piece will be used
+     * Renders an SVG element to a JPEG data URL using the browser's native SVG renderer (e.g. for createPDF()).
+     * This correctly handles unicode characters, 8-digit hex colors with alpha (#RRGGBBAA),
+     * and all SVG features that the browser supports.
+     * @param svgElement the SVG DOM element to render
+     * @param scale resolution multiplier (default 1, use 2 for higher DPI)
+     * @param jpegQuality JPEG compression quality, 0.0 to 1.0 (default 0.8)
+     * @returns {Promise<string>} JPEG data URL
      */
-    async function createPdf(pdfName) {
+    function svgElementToDataUrl(svgElement, scale, jpegQuality) {
+        if (scale === undefined) {
+            scale = 2;
+            // scale 2 and jpegQuality 0.9 is a good balance between sharpness and file size.
+            //   File size is still smaller than before the jpeg change.
+            //   at scale 1, especially curved objects like clefs and braces look bad when zooming in a lot.
+        }
+        if (jpegQuality === undefined) {
+            jpegQuality = 0.9;
+        }
+        return new Promise(function(resolve, reject) {
+            var clone = svgElement.cloneNode(true);
+            if (!clone.getAttribute('xmlns')) {
+                clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            }
+            if (!clone.getAttribute('xmlns:xlink')) {
+                clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+            }
+
+            var width = svgElement.clientWidth || svgElement.getBoundingClientRect().width;
+            var height = svgElement.clientHeight || svgElement.getBoundingClientRect().height;
+            clone.setAttribute('width', width);
+            clone.setAttribute('height', height);
+
+            var svgData = new XMLSerializer().serializeToString(clone);
+            var svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            var url = URL.createObjectURL(svgBlob);
+
+            var img = new Image();
+            img.onload = function() {
+                var canvas = document.createElement('canvas');
+                canvas.width = width * scale;
+                canvas.height = height * scale;
+                var ctx = canvas.getContext('2d');
+                // Fill white background so transparent elements stay invisible against white
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.scale(scale, scale);
+                ctx.drawImage(img, 0, 0, width, height);
+                URL.revokeObjectURL(url);
+                resolve(canvas.toDataURL('image/jpeg', jpegQuality));
+            };
+            img.onerror = function(e) {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to render SVG to image'));
+            };
+            img.src = url;
+        });
+    }
+
+    /**
+     * Creates a PDF of the currently rendered MusicXML.
+     * By default, uses image-based export which correctly handles unicode characters
+     * (Vietnamese, Chinese, etc.) and transparency (8-digit hex colors like #RRGGBBAA).
+     * @param pdfName if no name is given, the composer and title of the piece will be used
+     * @param scale resolution multiplier for image export (default 1). Higher values produce
+     *   sharper output but larger files. Use 2 for high-DPI/print quality.
+     * @param exportMode "image" (default) renders via browser's native SVG renderer for best
+     *   compatibility. "svg" uses svg2pdf.js for vector output (requires svg2pdf.js, may have
+     *   rendering issues with unicode and transparency).
+     */
+    async function createPdf(pdfName, scale, exportMode) {
+        if (scale === undefined) {
+            scale = 2;
+        }
+        if (exportMode === undefined) {
+            exportMode = "image";
+        }
         if (openSheetMusicDisplay.backendType !== BackendType.SVG) {
-            console.log("[OSMD] createPdf(): Warning: createPDF is only supported for SVG background for now, not for Canvas." +
+            console.log("[OSMD] createPdf(): Warning: createPdf is only supported for SVG backend for now, not for Canvas." +
                 " Please use osmd.setOptions({backendType: SVG}).");
             return;
         }
@@ -882,37 +1099,45 @@ import { TransposeCalculator } from '../src/Plugins/Transpose/TransposeCalculato
         }
 
         const orientation = pageHeight > pageWidth ? "p" : "l";
-        // create a new jsPDF instance
         const pdf = new jsPDF.jsPDF({
             orientation: orientation,
             unit: "mm",
             format: [pageWidth, pageHeight]
         });
-        //const scale = pageWidth / svgElement.clientWidth;
-        for (let idx = 0, len = backends.length; idx < len; ++idx) {
-            if (idx > 0) {
-                pdf.addPage();
+        if (exportMode === "image") {
+            // Image-based export: uses the browser's native SVG renderer, which correctly
+            // handles unicode, 8-digit hex alpha colors, and all CSS/SVG features.
+            for (let idx = 0; idx < backends.length; idx++) {
+                if (idx > 0) {
+                    pdf.addPage();
+                }
+                svgElement = backends[idx].getSvgElement();
+                const imageDataUrl = await svgElementToDataUrl(svgElement, scale);
+                pdf.addImage(imageDataUrl, 'JPEG', 0, 0, pageWidth, pageHeight);
             }
-            svgElement = backends[idx].getSvgElement();
-            
-            if (!pdf.svg && !svg2pdf) { // this line also serves to make the svg2pdf not unused, though it's still necessary
-                // we need svg2pdf to have pdf.svg defined
-                console.log("svg2pdf missing, necessary for jspdf.svg().");
+        } else {
+            // SVG-based export (original approach, requires svg2pdf.js).
+            // Note: svg2pdf.js may not correctly handle unicode or 8-digit hex colors.
+            if (!pdf.svg && !svg2pdf) {
+                console.log("[OSMD] createPdf(): svg2pdf.js missing, necessary for SVG export mode.");
                 return;
             }
-            await pdf.svg(svgElement, {
-                x: 0,
-                y: 0,
-                width: pageWidth,
-                height: pageHeight,
-            })
+            for (let idx = 0; idx < backends.length; idx++) {
+                if (idx > 0) {
+                    pdf.addPage();
+                }
+                svgElement = backends[idx].getSvgElement();
+                await pdf.svg(svgElement, {
+                    x: 0,
+                    y: 0,
+                    width: pageWidth,
+                    height: pageHeight,
+                });
+            }
         }
 
         pdf.save(pdfName); // save/download the created pdf
-        //pdf.output("pdfobjectnewwindow", {filename: "osmd_createPDF.pdf"}); // open PDF in new tab/window
-
-        // note that using jspdf with svg2pdf creates unnecessary console warnings "AcroForm-Classes are not populated into global-namespace..."
-        // this will hopefully be fixed with a new jspdf release, see https://github.com/yWorks/jsPDF/pull/32
+        // pdf.output("pdfobjectnewwindow", {filename: "osmd_createPDF.pdf"}); // open PDF in new tab/window
     }
 
     // Register events: load, drag&drop

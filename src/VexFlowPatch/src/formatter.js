@@ -302,11 +302,13 @@ export class Formatter {
           } else if (index > 0 && index < notes.length) {
             // If previous note is a rest, use its line number.
             let restLine;
-            if (notes[index - 1].isRest()) {
-              restLine = notes[index - 1].getKeyProps()[0].line;
+            const restNote = notes[index - 1];
+            // VexFlowPatch: Fix null error (getKeyProps doesn't exist on GhostNotes)
+            if (restNote.isRest() && restNote.getKeyProps) {
+              restLine = restNote.getKeyProps()[0].line;
               props.line = restLine;
             } else {
-              restLine = notes[index - 1].getLineForRest();
+              restLine = restNote.getLineForRest();
               // Get the rest line for next valid non-rest note group.
               props.line = lookAhead(notes, restLine, index, true);
             }
@@ -481,7 +483,13 @@ export class Formatter {
     // Pass 2: Take leftover width, and distribute it to proportionately to
     // all notes.
     const remainingX = justifyWidth - this.minTotalWidth;
-    const leftoverPxPerTick = remainingX / (this.totalTicks.value() * resolutionMultiplier);
+    let totalTicks = this.totalTicks.value();
+    if (totalTicks === 0) {
+      totalTicks = 1;
+      // VexFlowPatch: this is not supposed to happen, but does for faulty tab scores, needs fixing,
+      //   so that leftoverPxPerTick doesn't become Infinity, and then x is set to NaN (via setX())
+    }
+    const leftoverPxPerTick = remainingX / (totalTicks * resolutionMultiplier);
     let spaceAccum = 0;
 
     contextList.forEach((tick, index) => {

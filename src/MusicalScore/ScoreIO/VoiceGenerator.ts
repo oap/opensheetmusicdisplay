@@ -2,7 +2,7 @@ import { LinkedVoice } from "../VoiceData/LinkedVoice";
 import { Voice } from "../VoiceData/Voice";
 import { MusicSheet } from "../MusicSheet";
 import { VoiceEntry, StemDirectionType } from "../VoiceData/VoiceEntry";
-import { Note } from "../VoiceData/Note";
+import { Note, TremoloInfo } from "../VoiceData/Note";
 import { SourceMeasure } from "../VoiceData/SourceMeasure";
 import { SourceStaffEntry } from "../VoiceData/SourceStaffEntry";
 import { Beam } from "../VoiceData/Beam";
@@ -116,8 +116,8 @@ export class VoiceGenerator {
   public read(noteNode: IXmlElement, noteDuration: Fraction, typeDuration: Fraction, noteTypeXml: NoteType, normalNotes: number, restNote: boolean,
               parentStaffEntry: SourceStaffEntry, parentMeasure: SourceMeasure,
               measureStartAbsoluteTimestamp: Fraction, maxTieNoteFraction: Fraction, chord: boolean, octavePlusOne: boolean,
-              printObject: boolean, isCueNote: boolean, isGraceNote: boolean, stemDirectionXml: StemDirectionType, tremoloStrokes: number,
-              stemColorXml: string, noteheadColorXml: string, vibratoStrokes: boolean,
+              printObject: boolean, isCueNote: boolean, isGraceNote: boolean, stemDirectionXml: StemDirectionType, tremoloInfo: TremoloInfo,
+              stemColorXml: string, noteheadColorXml: string,
               dotsXml: number): Note {
     this.currentStaffEntry = parentStaffEntry;
     this.currentMeasure = parentMeasure;
@@ -127,7 +127,7 @@ export class VoiceGenerator {
       this.currentNote = restNote
         ? this.addRestNote(noteNode.element("rest"), noteDuration, noteTypeXml, typeDuration, normalNotes, printObject, isCueNote, noteheadColorXml)
         : this.addSingleNote(noteNode, noteDuration, noteTypeXml, typeDuration, normalNotes, chord, octavePlusOne,
-                             printObject, isCueNote, isGraceNote, stemDirectionXml, tremoloStrokes, stemColorXml, noteheadColorXml, vibratoStrokes);
+                             printObject, isCueNote, isGraceNote, stemDirectionXml, tremoloInfo, stemColorXml, noteheadColorXml);
       this.currentNote.DotsXml = dotsXml;
       // read lyrics
       const lyricElements: IXmlElement[] = noteNode.elements("lyric");
@@ -290,6 +290,7 @@ export class VoiceGenerator {
     }
   }
 
+  /** Check/delete open ties that don't exceed measure duration. Currently unused as it's incorrect, see below. */
   public checkOpenTies(): void {
     const openTieDict: { [key: number]: Tie } = this.openTieDict;
     for (const key in openTieDict) {
@@ -298,6 +299,8 @@ export class VoiceGenerator {
         if (Fraction.plus(tie.StartNote.ParentStaffEntry.Timestamp, tie.Duration)
           .lt(tie.StartNote.SourceMeasure.Duration)) {
           delete openTieDict[key];
+          // TODO the assumption that an open tie can be deleted if it doesn't exceed the measure duration is incorrect,
+          //   see #1530 or Mozart K570 measure 42, simplified into test sample test_tie_missing_k570.musicxml
         }
       }
     }
@@ -340,8 +343,8 @@ export class VoiceGenerator {
    */
   private addSingleNote(node: IXmlElement, noteDuration: Fraction, noteTypeXml: NoteType, typeDuration: Fraction,
                         normalNotes: number, chord: boolean, octavePlusOne: boolean,
-                        printObject: boolean, isCueNote: boolean, isGraceNote: boolean, stemDirectionXml: StemDirectionType, tremoloStrokes: number,
-                        stemColorXml: string, noteheadColorXml: string, vibratoStrokes: boolean): Note {
+                        printObject: boolean, isCueNote: boolean, isGraceNote: boolean, stemDirectionXml: StemDirectionType, tremoloInfo: TremoloInfo,
+                        stemColorXml: string, noteheadColorXml: string): Note {
     //log.debug("addSingleNote called");
     let noteAlter: number = 0;
     let accidentalValue: string;
@@ -460,8 +463,8 @@ export class VoiceGenerator {
     const pitch: Pitch = new Pitch(noteStep, noteOctave, noteAccidental, accidentalValue);
     const noteLength: Fraction = Fraction.createFromFraction(noteDuration);
     let note: Note = undefined;
-    let stringNumber: number = -1;
-    let fretNumber: number = -1;
+    let stringNumber: number = -1; //1 to always recognize as valid tab note
+    let fretNumber: number = -1; //0 to always recognize as valid tab note
     const bends: {bendalter: number, direction: string}[] = [];
     // check for guitar tabs:
     const notationNode: IXmlElement = node.element("notations");
@@ -495,7 +498,7 @@ export class VoiceGenerator {
     } else {
       // create TabNote
       note = new TabNote(this.currentVoiceEntry, this.currentStaffEntry, noteLength, pitch, this.currentMeasure,
-                         stringNumber, fretNumber, bends, vibratoStrokes);
+                         stringNumber, fretNumber, bends);
     }
 
     this.addNoteInfo(note, noteTypeXml, printObject, isCueNote, normalNotes,
@@ -504,7 +507,7 @@ export class VoiceGenerator {
     note.TypeLength = typeDuration;
     note.IsGraceNote = isGraceNote;
     note.StemDirectionXml = stemDirectionXml; // maybe unnecessary, also in VoiceEntry
-    note.TremoloStrokes = tremoloStrokes; // could be a Tremolo object in future if we have more data to manage like two-note tremolo
+    note.TremoloInfo = tremoloInfo;
     note.PlaybackInstrumentId = playbackInstrumentId;
     if ((noteheadShapeXml !== undefined && noteheadShapeXml !== "normal") || noteheadFilledXml !== undefined) {
       note.Notehead = new Notehead(note, noteheadShapeXml, noteheadFilledXml);
@@ -617,6 +620,20 @@ export class VoiceGenerator {
         if (!sameVoiceEntry) {
           const openBeam: Beam = this.openBeams[beamNumber - 1];
           openBeam.addNoteToBeam(note);
+          // Detect secondary beam breaks: a higher beam level ends while beam #1 continues.
+          // VexFlow's breakSecondaryAt extends the beam TO the break index then stops,
+          // so we record the index of the last note in the outgoing secondary group.
+          if (currentBeamTag === "continue" && mainBeamNode.length > 1) {
+            for (let i: number = 1; i < mainBeamNode.length; i++) {
+              if (mainBeamNode[i].value === "end") {
+                const noteIndex: number = openBeam.Notes.length - 1;
+                if (noteIndex > 0) {
+                  openBeam.SecondaryBreakIndices.push(noteIndex);
+                }
+                break;
+              }
+            }
+          }
           // const lastBeamNote: Note = openBeam.Notes.last();
           // const graceStatusChanged: boolean = (lastBeamNote?.IsCueNote || lastBeamNote?.IsGraceNote) !== (note.IsCueNote) || (note.IsGraceNote);
           if (currentBeamTag === "end") {
@@ -692,7 +709,8 @@ export class VoiceGenerator {
    * @returns {number}
    */
   private addTuplet(node: IXmlElement, tupletNodeList: IXmlElement[]): number {
-    let bracketed: boolean = false; // xml bracket attribute value
+    let bracketed: boolean = false; // true if bracket=yes given, otherwise false
+    let bracketedXmlValue: boolean = undefined; // Exact xml bracket value given: true for bracket=yes, false for bracket=no, undefined if not given.
     // TODO refactor this to not duplicate lots of code for the cases tupletNodeList.length == 1 and > 1
     if (tupletNodeList !== undefined && tupletNodeList.length > 1) {
       let timeModNode: IXmlElement = node.element("time-modification");
@@ -706,7 +724,17 @@ export class VoiceGenerator {
           const bracketAttr: Attr = tupletNode.attribute("bracket");
           if (bracketAttr && bracketAttr.value === "yes") {
             bracketed = true;
+            bracketedXmlValue = true;
+          } else if (bracketAttr && bracketAttr.value === "no") {
+            bracketedXmlValue = false;
           }
+          let ratioed: boolean = this.musicSheet.Rules.TupletsRatioed;
+          const showNumberAttr: Attr = tupletNode.attribute("show-number");
+          if (showNumberAttr && showNumberAttr.value === "both" && this.musicSheet.Rules.TupletsRatioedUseXMLValue) {
+            ratioed = true;
+          }
+
+          const showNumberNoneGiven: boolean = this.readShowNumberNoneGiven(tupletNode);
 
           const type: Attr = tupletNode.attribute("type");
           if (type && type.value === "start") {
@@ -724,9 +752,12 @@ export class VoiceGenerator {
                 this.musicSheet.SheetErrors.pushMeasureError(errorMsg);
                 throw new MusicSheetReadingException(errorMsg, undefined);
               }
-
             }
+
             const tuplet: Tuplet = new Tuplet(tupletLabelNumber, bracketed);
+            tuplet.Ratioed = ratioed;
+            tuplet.BracketedXmlValue = bracketedXmlValue;
+            tuplet.ShowNumberNoneGivenInXml = showNumberNoneGiven;
             //Default to above
             tuplet.tupletLabelNumberPlacement = PlacementEnum.Above;
             //If we ever encounter a placement attribute for this tuplet, should override.
@@ -814,10 +845,19 @@ export class VoiceGenerator {
           tupletnumber = parseInt(n.attribute("number").value, 10);
         }
         const noTupletNumbering: boolean = isNaN(tupletnumber);
+        const showNumberNoneGiven: boolean = this.readShowNumberNoneGiven(n);
 
         const bracketAttr: Attr = n.attribute("bracket");
         if (bracketAttr && bracketAttr.value === "yes") {
           bracketed = true;
+          bracketedXmlValue = true;
+        } else if (bracketAttr && bracketAttr.value === "no") {
+          bracketedXmlValue = false;
+        }
+        let ratioed: boolean = this.musicSheet.Rules.TupletsRatioed;
+        const showNumberAttr: Attr = n.attribute("show-number");
+        if (showNumberAttr && showNumberAttr.value === "both" && this.musicSheet.Rules.TupletsRatioedUseXMLValue) {
+          ratioed = true;
         }
         if (type === "start") {
           let tupletLabelNumber: number = 0;
@@ -843,6 +883,9 @@ export class VoiceGenerator {
           let tuplet: Tuplet = this.tupletDict[tupletnumber];
           if (!tuplet) {
             tuplet = this.tupletDict[tupletnumber] = new Tuplet(tupletLabelNumber, bracketed);
+            tuplet.Ratioed = ratioed;
+            tuplet.BracketedXmlValue = bracketedXmlValue;
+            tuplet.ShowNumberNoneGivenInXml = showNumberNoneGiven;
             //Default to above
             tuplet.tupletLabelNumberPlacement = PlacementEnum.Above;
           }
@@ -916,6 +959,16 @@ export class VoiceGenerator {
       }
     }
     return this.openTupletNumber;
+  }
+
+  private readShowNumberNoneGiven(tupletNode: IXmlElement): boolean {
+    const showNumber: Attr = tupletNode.attribute("show-number");
+    if (showNumber?.value) {
+      if (showNumber.value === "none") {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

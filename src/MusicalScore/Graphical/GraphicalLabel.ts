@@ -17,6 +17,9 @@ export class GraphicalLabel extends Clickable {
      *  For the Canvas backend, this is unfortunately not possible.
      */
     public SVGNode: Node;
+    /** Read-only informational variable only set once by lyrics centering algorithm. */
+    public CenteringXShift: number = 0;
+    public ColorXML: string;
 
     /**
      * Creates a new GraphicalLabel from a Label
@@ -62,6 +65,8 @@ export class GraphicalLabel extends Clickable {
             MusicSheetCalculator.TextMeasurer.computeTextWidthToHeightRatio(
                line, this.Label.font, this.Label.fontStyle, this.label.fontFamily);
             const currWidth: number = this.Label.fontHeight * widthToHeightRatio;
+            // const currWidth: number = MusicSheetCalculator.TextMeasurer.computeTextWidth(
+            //     line, this.Label.font, this.Label.fontStyle, this.label.fontFamily);
             maxWidth = Math.max(maxWidth, currWidth);
             // here push only text and width of the text:
             this.TextLines.push({text: line, xOffset: 0, width: currWidth});

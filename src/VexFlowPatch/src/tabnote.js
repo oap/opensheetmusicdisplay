@@ -212,7 +212,11 @@ export class TabNote extends StemmableNote {
     for (let i = 0; i < this.positions.length; ++i) {
       let fret = this.positions[i].fret;
       if (this.ghost) fret = '(' + fret + ')';
-      const glyph = Flow.tabToGlyph(fret, this.render_options.scale);
+      const glyphScale = this.render_options.fretScale ?? this.render_options.scale;
+      const glyph = Flow.tabToGlyph(fret, glyphScale, this.render_options.TabUseXNoteheadAlternativeGlyph);
+      if (fret === 'x') {
+        glyph.isXGlyph = true;
+      }
       this.glyphs.push(glyph);
       this.width = Math.max(glyph.getWidth(), this.width);
     }
@@ -435,8 +439,7 @@ export class TabNote extends StemmableNote {
       const glyph = this.glyphs[i];
 
       let currentGlyphWidth = glyph.getWidth();
-      if (currentGlyphWidth === 0 && glyph.text && glyph.text.toString() && glyph.text.toString().length) {
-        // above: glyph.text?.toString()?.length would be shorter, but fails appveyor build
+      if (currentGlyphWidth === 0 && glyph.text?.toString()?.length) {
         // VexflowPatch: workaround for generateImages script -> SVG export
         currentGlyphWidth = glyph.text.toString().length * 7;
       }
@@ -448,8 +451,18 @@ export class TabNote extends StemmableNote {
       }
       const tab_x = x + (note_glyph_width / 2) - (currentGlyphWidth / 2);
 
-      // FIXME: Magic numbers.
-      ctx.clearRect(tab_x - 2, y - 3, currentGlyphWidth + 4, 6);
+      // VexFlowPatch: fix black instead of transparent rectangles around tab notes in certain scenarios
+      //   e.g. when EngravingRules.PageBackgroundColor set or image viewer displays transparent as black
+      if (this.BackgroundColor) {
+        ctx.save();
+        ctx.setFillStyle(this.BackgroundColor);
+        ctx.setLineWidth(0);
+        // FIXME: Magic numbers.
+        ctx.fillRect(tab_x - 2, y - 3, currentGlyphWidth + 4, 6);
+        ctx.restore();
+      } else {
+        ctx.clearRect(tab_x - 2, y - 3, currentGlyphWidth + 4, 6);
+      }
 
       if (glyph.code) {
         Glyph.renderGlyph(ctx, tab_x, y,

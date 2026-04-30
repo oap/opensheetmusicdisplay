@@ -11,8 +11,11 @@ import { VexFlowVoiceEntry } from "./VexFlowVoiceEntry";
 import { Arpeggio } from "../../VoiceData/Arpeggio";
 import { Voice } from "../../VoiceData/Voice";
 import log from "loglevel";
+import { ClefEnum, ClefInstruction } from "../../VoiceData/Instructions/ClefInstruction";
 
 export class VexFlowTabMeasure extends VexFlowMeasure {
+    public multiRestElement: any; // VexFlow: Element
+
     constructor(staff: Staff, sourceMeasure: SourceMeasure = undefined, staffLine: StaffLine = undefined) {
         super(staff, sourceMeasure, staffLine);
         this.isTabMeasure = true;
@@ -44,16 +47,16 @@ export class VexFlowTabMeasure extends VexFlowMeasure {
             // create vex flow Notes:
             for (const gve of graphicalStaffEntry.graphicalVoiceEntries) {
                 if (gve.notes[0].sourceNote.isRest()) {
-                    (gve as VexFlowVoiceEntry).vfStaveNote = VexFlowConverter.GhostNotes(gve.notes[0].sourceNote.Length)[0];
+                    const ghostNotes: VF.GhostNote[] = VexFlowConverter.GhostNotes(gve.notes[0].sourceNote.Length);
+                    (gve as VexFlowVoiceEntry).vfStaveNote = ghostNotes[0];
+                    (gve as VexFlowVoiceEntry).vfGhostNotes = ghostNotes; // we actually need multiple ghost notes sometimes, see #1062 Sep. 23 2021 comment
                 } else {
                     (gve as VexFlowVoiceEntry).vfStaveNote = VexFlowConverter.CreateTabNote(gve);
                 }
             }
         }
 
-        if (this.rules.TupletNumbersInTabs) { // default false, don't show tuplets in tab measures
-            this.finalizeTuplets();
-        }
+        this.finalizeTuplets(); // this is necessary for x-alignment even when we don't want to show tuplet brackets or numbers
 
         const voices: Voice[] = this.getVoicesWithinMeasure();
 
@@ -81,7 +84,13 @@ export class VexFlowTabMeasure extends VexFlowMeasure {
                 const vexFlowVoiceEntry: VexFlowVoiceEntry = voiceEntry as VexFlowVoiceEntry;
                 if (voiceEntry.notes.length === 0 || !voiceEntry.notes[0] || !voiceEntry.notes[0].sourceNote.PrintObject) {
                     // GhostNote, don't add modifiers like in-measure clefs
-                    this.vfVoices[voice.VoiceId].addTickable(vexFlowVoiceEntry.vfStaveNote);
+                    if (vexFlowVoiceEntry.vfGhostNotes) {
+                        for (const ghostNote of vexFlowVoiceEntry.vfGhostNotes) {
+                            this.vfVoices[voice.VoiceId].addTickable(ghostNote);
+                        }
+                    } else {
+                        this.vfVoices[voice.VoiceId].addTickable(vexFlowVoiceEntry.vfStaveNote);
+                    }
                     continue;
                 }
 
@@ -113,10 +122,39 @@ export class VexFlowTabMeasure extends VexFlowMeasure {
                     }
                 }
 
-                this.vfVoices[voice.VoiceId].addTickable(vexFlowVoiceEntry.vfStaveNote);
+                if (vexFlowVoiceEntry.vfGhostNotes) {
+                    for (const ghostNote of vexFlowVoiceEntry.vfGhostNotes) {
+                        this.vfVoices[voice.VoiceId].addTickable(ghostNote);
+                    }
+                } else {
+                    this.vfVoices[voice.VoiceId].addTickable(vexFlowVoiceEntry.vfStaveNote);
+                }
             }
         }
         //this.createArticulations();
         //this.createOrnaments();
     }
+
+     public addClefAtBegin(clef: ClefInstruction): void {
+        if (clef.ClefType === ClefEnum.TAB) {
+            super.addClefAtBegin(clef);
+        }
+        // else return; // we don't need clefs in tabs.
+     }
+
+     public draw(ctx: Vex.IRenderContext): void {
+        super.draw(ctx);
+
+        // draw multi-measure rest: unlike a classical measure, this is not a VexFlowMultiRestMeasure class,
+        //   so we need to add the multiple measure rest element drawing here.
+        const sourceMeasure: SourceMeasure = this.parentSourceMeasure;
+        if (sourceMeasure.multipleRestMeasures && this.rules.RenderMultipleRestMeasures) {
+            this.multiRestElement = new VF.MultiMeasureRest(sourceMeasure.multipleRestMeasures, {
+                        // number_line: 3
+            });
+            this.multiRestElement.setStave(this.stave);
+            this.multiRestElement.setContext(ctx);
+            this.multiRestElement.draw();
+        }
+     }
 }

@@ -10,6 +10,7 @@ import {Tuplet} from "../../VoiceData/Tuplet";
 import {GraphicalVoiceEntry} from "../GraphicalVoiceEntry";
 import {Voice} from "../../VoiceData/Voice";
 import {VexFlowMeasure} from "./VexFlowMeasure";
+import { BoundingBox } from "../BoundingBox";
 
 // type StemmableNote = VF.StemmableNote;
 
@@ -18,7 +19,8 @@ import {VexFlowMeasure} from "./VexFlowMeasure";
  *  Even though most of those functions aren't needed, apparently you can't remove the layoutStaffEntry function.
  */
 export class VexFlowMultiRestMeasure extends VexFlowMeasure {
-    private multiRestElement: any; // VexFlow: Element
+    public multiRestElement: any; // VexFlow: Element
+    public multiRestElementSVG: SVGGElement;
 
     constructor(staff: Staff, sourceMeasure: SourceMeasure = undefined, staffLine: StaffLine = undefined) {
         super(staff, sourceMeasure, staffLine);
@@ -37,7 +39,14 @@ export class VexFlowMultiRestMeasure extends VexFlowMeasure {
 
         this.resetLayout();
 
+        // padding_right doesn't work well for clefs at measure end. this.endInstructionsWidth is also not yet set correctly here.
+        // const padding_right: number = this.rules.MultipleRestMeasureElementPaddingRight * 10;
+        // padding is instead included in Vexflow in multimeasurerest.js:draw() (via VexFlowPatch), to not get too close to end repeat barline
+        // Also, we probably don't yet know whether we have an end measure clef here.
+        // see e.g. test/data/test_multiple_rest_measures_repeat_3_measures.musicxml, issue #1329
+
         this.multiRestElement = new VF.MultiMeasureRest(sourceMeasure.multipleRestMeasures, {
+            // padding_right: padding_right, // this overwrites any padding/endX calculations in Vexflow. doesn't work well for end clefs
             // number_line: 3
         });
     }
@@ -47,12 +56,24 @@ export class VexFlowMultiRestMeasure extends VexFlowMeasure {
      * @param ctx
      */
     public draw(ctx: Vex.IRenderContext): void {
+        const measureNode: SVGGElement = ctx.openGroup() as SVGGElement;
+        if (measureNode) {
+            measureNode.classList?.add("vf-measure");
+            measureNode.classList?.add("multi");
+            measureNode.id = `${this.MeasureNumber}`;
+        }
+
         // Draw stave lines
         this.stave.setContext(ctx).draw();
 
+        this.multiRestElementSVG = ctx.openGroup("multirest") as SVGGElement;
         this.multiRestElement.setStave(this.stave);
         this.multiRestElement.setContext(ctx);
         this.multiRestElement.draw();
+        this.multiRestElement.id = `vf-multi${this.MeasureNumber}`;
+        ctx.closeGroup();
+
+        ctx.closeGroup();
 
         // Draw vertical lines
         for (const connector of this.connectors) {
@@ -61,7 +82,22 @@ export class VexFlowMultiRestMeasure extends VexFlowMeasure {
     }
 
     public format(): void {
-        // like most of the following methods, not necessary / can be simplified for MultiRestMeasure.
+        // like most of the following methods, generally not necessary / can be simplified for MultiRestMeasure.
+        // but making a sensible bounding box for the StaffEntry / VoiceEntry / GraphicalNote helps click detection: (see #506)
+        for (const staffEntry of this.staffEntries) {
+            // place virtual position in middle
+            const measureWidthExInstructions: number = this.PositionAndShape.Size.width - this.beginInstructionsWidth;
+            staffEntry.PositionAndShape.RelativePosition.x = this.PositionAndShape.Size.width / 2 + this.beginInstructionsWidth / 3;
+            staffEntry.PositionAndShape.RelativePosition.y = 0; // alternative: 1 or this.PositionAndShape.Size.height / 2;
+            //   but seems like most staffentries are anchored to top line
+            // BorderLeft etc will be set by child elements -> note (also for VoiceEntry)
+            const noteBbox: BoundingBox = staffEntry.graphicalVoiceEntries[0]?.notes[0]?.PositionAndShape;
+            noteBbox.BorderLeft = -measureWidthExInstructions / 3;
+            noteBbox.BorderRight = measureWidthExInstructions / 3;
+            noteBbox.BorderTop = 1; // TODO somehow this doesn't move the upper edge of the rectangle downwards as it does for non-multirest entries
+            noteBbox.BorderBottom = 3;
+            staffEntry.PositionAndShape.calculateBoundingBox();
+        }
     }
 
     /**

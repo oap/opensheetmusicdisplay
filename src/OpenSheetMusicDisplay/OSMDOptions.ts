@@ -1,5 +1,6 @@
-import { DrawingParametersEnum, ColoringModes } from "../MusicalScore/Graphical/DrawingParameters";
+import { ColoringModes } from "../Common/Enums/ColoringModes";
 import { FontStyles } from "../Common/Enums/FontStyles";
+import { DrawingParametersEnum } from "../Common/Enums/DrawingParametersEnum";
 
 export enum CursorType {
     Standard = 0,
@@ -255,7 +256,7 @@ export interface IOSMDOptions {
      * Set to true if subsequent measures full of rests should be auto-converted to multi-rest measure. Default is true
      * This works across instruments- If all instruments have subsequent measures with nothing but rests, multirest measures are generated
      */
-    autoGenerateMutipleRestMeasuresFromRestMeasures?: boolean;
+    autoGenerateMultipleRestMeasuresFromRestMeasures?: boolean;
     /**
      * Defines multiple simultaneous cursors. If left undefined the standard cursor will be used.
      */
@@ -338,16 +339,10 @@ export interface CursorOptions {
      * 4: Current measure to left of current notes
      */
     type: CursorType;
-    /**
-     * Color to draw the cursor
-     */
+    /** Color to draw the cursor */
     color: string;
-    /**
-     * alpha value to be used with color (0.0 transparent, 0.5 medium, 1.0 opaque).
-     */
+    /** alpha value to be used with color (0.0 transparent, 0.5 medium, 1.0 opaque). */
     alpha: number;
-    /**
-     * If true, this cursor will be followed.
-     */
+    /** If true, this cursor will be followed. */
     follow: boolean;
 }

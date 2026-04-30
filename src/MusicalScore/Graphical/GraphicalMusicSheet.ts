@@ -219,14 +219,28 @@ export class GraphicalMusicSheet {
     }
 
     public findGraphicalMeasure(measureIndex: number, staffIndex: number): GraphicalMeasure {
+        // note the cursor calls this with measureIndex 1 (measure 2) when advancing beyond the end of a 1-measure piece
         for (let i: number = measureIndex; i >= 0; i--) {
-            const gMeasure: GraphicalMeasure = this.measureList[i][staffIndex];
+            const gMeasure: GraphicalMeasure = this.measureList[i]?.[staffIndex];
             if (gMeasure) {
                 return gMeasure;
             }
             // else look backwards (previous measures). this is only really valid for MultipleRestMeasures of course.
         }
         return undefined; // shouldn't happen
+    }
+
+    public findGraphicalMeasureByMeasureNumber(measureNumber: number, staffIndex: number): GraphicalMeasure {
+        // start with index = measureNumber, as a piece with a pickup measure starts with measure number 0
+        for (let i: number = measureNumber; i >= 0; i--) {
+            if (this.MeasureList[i]) {
+                const measure: GraphicalMeasure = this.MeasureList[i][staffIndex];
+                if (measure?.MeasureNumber === measureNumber) {
+                    return measure;
+                }
+            }
+        }
+        return undefined;
     }
 
     /**
@@ -406,10 +420,15 @@ export class GraphicalMusicSheet {
      */
     public GetInterpolatedIndexInVerticalContainers(musicTimestamp: Fraction): number {
         const containers: VerticalGraphicalStaffEntryContainer[] = this.verticalGraphicalStaffEntryContainers;
+        if (containers.length === 1) {
+            return 0; // this fixes an error with Noteflight samples, see below (#1473). It may also be faster.
+        }
         let leftIndex: number = 0;
         let rightIndex: number = containers.length - 1;
         let leftTS: Fraction = undefined;
         let rightTS: Fraction = undefined;
+        // TODO AbsoluteTimestamp can be NaN in some erroneous MusicXML files like from Noteflight, see omd issue #1473
+        //   (though in the sample tested, there is only one container, so above containers.length === 1 prevents the error)
         if (musicTimestamp.lte(containers[containers.length - 1].AbsoluteTimestamp)) {
             while (rightIndex - leftIndex > 1) {
                 const middleIndex: number = Math.floor((rightIndex + leftIndex) / 2);
@@ -444,7 +463,7 @@ export class GraphicalMusicSheet {
 
         // estimate the interpolated index
         const foundIndex: number = rightIndex - (diffTS / diff);
-        return Math.min(foundIndex, this.verticalGraphicalStaffEntryContainers.length);
+        return Math.min(foundIndex, this.verticalGraphicalStaffEntryContainers.length - 1);
     }
 
     /**
@@ -492,6 +511,10 @@ export class GraphicalMusicSheet {
         let measureIndex: number = this.measureList.length - 1;
         if (lastRendered) {
             measureIndex = Math.min(measureIndex, this.musicSheet.Rules.MaxMeasureToDrawIndex);
+        }
+        let measure: GraphicalMeasure = this.measureList[measureIndex][staffIndex];
+        while (!measure && measureIndex >= 0) { // check for undefined measures, e.g. multi-measure-rest
+            measure = this.measureList[--measureIndex][staffIndex];
         }
         return this.measureList[measureIndex][staffIndex];
     }
@@ -678,7 +701,9 @@ export class GraphicalMusicSheet {
         // Search for StaffEntries in region
         for (let idx: number = 0, len: number = this.MusicPages.length; idx < len; ++idx) {
             const graphicalMusicPage: GraphicalMusicPage = this.MusicPages[idx];
-            const entries: GraphicalStaffEntry[] = graphicalMusicPage.PositionAndShape.getObjectsInRegion<GraphicalStaffEntry>(region, false);
+            const entries: GraphicalStaffEntry[] = graphicalMusicPage.PositionAndShape.
+                getObjectsInRegion<GraphicalStaffEntry>(region, false, GraphicalStaffEntry.name);
+                // note that "GraphicalStaffEntry" instead of GraphicalStaffEntry.name doesn't work with minified builds
             if (!entries || entries.length === 0) {
                 continue;
             } else {
@@ -712,6 +737,60 @@ export class GraphicalMusicSheet {
         // throw new ArgumentException("No staff entry found");
         return undefined;
     }
+
+    /** Returns nearest object of type T near clickPosition.
+     * E.g. GetNearestObject<GraphicalMeasure>(pos, GraphicalMeasure.name) returns the nearest measure.
+     * Note that there is also GetNearestStaffEntry(), which has a bit more specific code for staff entries.
+     * */
+    public GetNearestObject<T extends GraphicalObject>(clickPosition: PointF2D, className: string): T {
+        const initialSearchArea: number = 10;
+        const foundEntries: T[] = [];
+        // Prepare search area
+        const region: BoundingBox = new BoundingBox(undefined);
+        region.BorderLeft = clickPosition.x - initialSearchArea;
+        region.BorderTop = clickPosition.y - initialSearchArea;
+        region.BorderRight = clickPosition.x + initialSearchArea;
+        region.BorderBottom = clickPosition.y + initialSearchArea;
+        region.AbsolutePosition = new PointF2D(0, 0);
+        // Search for StaffEntries in region
+        for (let idx: number = 0, len: number = this.MusicPages.length; idx < len; ++idx) {
+            const graphicalMusicPage: GraphicalMusicPage = this.MusicPages[idx];
+            const entries: T[] = graphicalMusicPage.PositionAndShape.getObjectsInRegion<T>(region, false, className);
+            if (!entries || entries.length === 0) {
+                continue;
+            } else {
+                for (let idx2: number = 0, len2: number = entries.length; idx2 < len2; ++idx2) {
+                    const entry: T = entries[idx2];
+                    foundEntries.push(entry);
+                }
+            }
+        }
+        // Get closest entry
+        let closest: T = undefined;
+        for (let idx: number = 0, len: number = foundEntries.length; idx < len; ++idx) {
+            const foundEntry: T = foundEntries[idx];
+            if (closest === undefined) {
+                closest = foundEntry;
+            } else {
+                // if (!foundEntry.relInMeasureTimestamp) {
+                // relInMeasureTimestamp doesn't necessarily exist on generic type T, as it does on GraphicalStaffEntry
+                //     continue;
+                // }
+                const deltaNew: number = this.CalculateDistance(foundEntry.PositionAndShape.AbsolutePosition, clickPosition);
+                const deltaOld: number = this.CalculateDistance(closest.PositionAndShape.AbsolutePosition, clickPosition);
+                if (deltaNew < deltaOld) {
+                    closest = foundEntry;
+                }
+            }
+        }
+        if (closest) {
+            return closest;
+        }
+        // TODO No object of type T was found. Feedback?
+        // throw new ArgumentException(`No object of type ${className} found`);
+        return undefined;
+    }
+
 
     public GetPossibleCommentAnchor(clickPosition: PointF2D): SourceStaffEntry {
         const entry: GraphicalStaffEntry = this.GetNearestStaffEntry(clickPosition);
@@ -778,7 +857,7 @@ export class GraphicalMusicSheet {
         try {
             for (let idx: number = 0, len: number = container.StaffEntries.length; idx < len; ++idx) {
                 const entry: GraphicalStaffEntry = container.StaffEntries[idx];
-                if (!entry || !entry.sourceStaffEntry.ParentStaff.ParentInstrument.Visible) {
+                if (!entry || !entry.sourceStaffEntry.ParentStaff.isVisible()) {
                     continue;
                 }
                 if (!staffEntry) {
@@ -807,7 +886,7 @@ export class GraphicalMusicSheet {
             const entries: GraphicalStaffEntry[] = this.verticalGraphicalStaffEntryContainers[i].StaffEntries;
             for (let idx: number = 0, len: number = entries.length; idx < len; ++idx) {
                 const entry: GraphicalStaffEntry = entries[idx];
-                if (entry && entry.sourceStaffEntry.ParentStaff.ParentInstrument.Visible) {
+                if (entry && entry.sourceStaffEntry.ParentStaff.isVisible()) {
                     return i;
                 }
             }
@@ -826,7 +905,7 @@ export class GraphicalMusicSheet {
             const entries: GraphicalStaffEntry[] = this.verticalGraphicalStaffEntryContainers[i].StaffEntries;
             for (let idx: number = 0, len: number = entries.length; idx < len; ++idx) {
                 const entry: GraphicalStaffEntry = entries[idx];
-                if (entry && entry.sourceStaffEntry.ParentStaff.ParentInstrument.Visible) {
+                if (entry && entry.sourceStaffEntry.ParentStaff.isVisible()) {
                     return i;
                 }
             }
@@ -842,7 +921,7 @@ export class GraphicalMusicSheet {
             foundEntry = this.getStaffEntry(i);
             if (foundEntry) {
                 if (searchOnlyVisibleEntries) {
-                    if (foundEntry.sourceStaffEntry.ParentStaff.ParentInstrument.Visible) {
+                    if (foundEntry.sourceStaffEntry.ParentStaff.isVisible()) {
                         return foundEntry;
                     }
                 } else {
@@ -860,7 +939,7 @@ export class GraphicalMusicSheet {
             foundEntry = this.getStaffEntry(i);
             if (foundEntry) {
                 if (returnOnlyVisibleEntries) {
-                    if (foundEntry.sourceStaffEntry.ParentStaff.ParentInstrument.Visible) {
+                    if (foundEntry.sourceStaffEntry.ParentStaff.isVisible()) {
                         return foundEntry;
                     }
                 } else {
@@ -936,7 +1015,8 @@ export class GraphicalMusicSheet {
             const nextSystemLeftBorderTimeStamp: number = nextStaffEntry.parentMeasure.parentSourceMeasure.AbsoluteTimestamp.RealValue;
             let fraction: number;
             let interpolatedXPosition: number;
-            if (currentTimeStamp < nextSystemLeftBorderTimeStamp) {
+            if (currentTimeStamp < nextSystemLeftBorderTimeStamp && previousStaffEntryMusicSystem.StaffLines[0]) {
+                // previousStaffEntryMusicSystem.StaffLines[0]: fix for drawing range set (previous system not rendered)
                 currentMusicSystem = previousStaffEntryMusicSystem;
                 const previousStaffEntryPositionX: number = previousStaffEntry.PositionAndShape.AbsolutePosition.x;
                 const previousSystemRightBorderX: number = currentMusicSystem.GetRightBorderAbsoluteXPosition();
@@ -961,7 +1041,7 @@ export class GraphicalMusicSheet {
         let visibleInstrumentCount: number = 0;
         for (let idx: number = 0, len: number = this.musicSheet.Instruments.length; idx < len; ++idx) {
             const instrument: Instrument = this.musicSheet.Instruments[idx];
-            if (instrument.Visible === true) {
+            if (instrument.isVisible()) {
                 visibleInstrumentCount++;
             }
         }

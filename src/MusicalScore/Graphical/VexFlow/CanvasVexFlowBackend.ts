@@ -74,6 +74,18 @@ export class CanvasVexFlowBackend extends VexFlowBackend {
         return this.ctx;
     }
 
+    public free(): void {
+        if (this.canvas) {
+            // the following seems to only be necessary on iOS, preventing a memory leak (#1411)
+            (this.canvas as any).width = 0;
+            (this.canvas as any).height = 0;
+
+            this.canvas.remove();
+            delete this.canvas;
+            this.canvas = null;
+        }
+    }
+
     public clear(): void {
         (<any>this.ctx).clearRect(0, 0, (<any>this.canvas).width, (<any>this.canvas).height);
 
@@ -97,7 +109,7 @@ export class CanvasVexFlowBackend extends VexFlowBackend {
     }
     public renderText(fontHeight: number, fontStyle: FontStyles, font: Fonts, text: string,
                       heightInPixel: number, screenPosition: PointF2D,
-                      color: string = undefined, fontFamily: string = undefined): Node  {
+                      color: string = undefined, fontFamily: string = undefined): Node {
         const old: string = this.CanvasRenderingCtx.font;
         this.CanvasRenderingCtx.save();
         this.CanvasRenderingCtx.font = VexFlowConverter.font(
@@ -128,7 +140,7 @@ export class CanvasVexFlowBackend extends VexFlowBackend {
         return undefined; // can't return dom node like with SVG
     }
 
-    public renderLine(start: PointF2D, stop: PointF2D, color: string = "#FF0000FF", lineWidth: number= 2): Node {
+    public renderLine(start: PointF2D, stop: PointF2D, color: string = "#FF0000FF", lineWidth: number = 2, id?: string): Node {
         const oldStyle: string | CanvasGradient | CanvasPattern = this.CanvasRenderingCtx.strokeStyle;
         this.CanvasRenderingCtx.strokeStyle = color;
         this.CanvasRenderingCtx.beginPath();
@@ -163,6 +175,27 @@ export class CanvasVexFlowBackend extends VexFlowBackend {
         //this.ctx.stroke();
         this.ctx.closePath();
         this.ctx.fill();
+        return undefined;
+    }
+
+    public renderPath(points: PointF2D[], fill: boolean = true, id?: string): Node {
+        this.ctx.beginPath();
+        let currentPoint: PointF2D;
+        for (const point of points) {
+            if (!currentPoint) {
+                this.ctx.moveTo(point.x, point.y);
+                currentPoint = point;
+                continue;
+            }
+            this.ctx.lineTo(point.x, point.y);
+            // this.ctx.stroke();
+        }
+        this.ctx.closePath();
+        if (fill) {
+            this.ctx.fill();
+        } else {
+            this.ctx.stroke(); // just trace outline, don't fill inner area
+        }
         return undefined;
     }
 

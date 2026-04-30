@@ -42,6 +42,8 @@ export abstract class GraphicalMeasure extends GraphicalObject {
 
     public parentSourceMeasure: SourceMeasure;
     public staffEntries: GraphicalStaffEntry[];
+    /** The clef of the first note of the measure (the clef the measure starts with). */
+    public InitiallyActiveClef: ClefInstruction;
     /**
      * The x-width of possibly existing: repetition start line, clef, key, rhythm.
      */
@@ -80,6 +82,10 @@ export abstract class GraphicalMeasure extends GraphicalObject {
     public FormatJianpuClef: boolean = false;
     /** For JianpuMeasures: Whether to format as if a time signature was there, to sync x-position with non-jianpu measures. */
     public FormatJianpuTimeSignature: boolean = false;
+
+    public isTabMeasure: boolean = false;
+    /** Only exists on multiple rest measure (VexFlowMultiRestMeasure). See isMultiRestMeasure() function. */
+    public multiRestElement: any;
 
     public get ParentStaff(): Staff {
         return this.parentStaff;
@@ -266,7 +272,11 @@ export abstract class GraphicalMeasure extends GraphicalObject {
     }
 
     public isVisible(): boolean {
-        return this.ParentStaff.ParentInstrument.Visible;
+        return this.ParentStaff.isVisible();
+    }
+
+    public isMultiRestMeasure(): boolean {
+        return this.multiRestElement !== undefined;
     }
 
     public getGraphicalMeasureDurationFromStaffEntries(): Fraction {

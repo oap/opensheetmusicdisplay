@@ -324,14 +324,15 @@ export abstract class MusicSheetDrawer {
         for (const systemLine of musicSystem.SystemLines) {
             this.drawSystemLineObject(systemLine);
         }
-        if (musicSystem.Parent === musicSystem.Parent.Parent.MusicPages[0]) {
+        if (this.rules.RenderSystemLabelsAfterFirstPage ||
+            musicSystem.Parent === musicSystem.Parent.Parent.MusicPages[0]) {
             for (const label of musicSystem.Labels) {
                 label.SVGNode = this.drawLabel(label, <number>GraphicalLayers.Notes);
             }
         }
 
         const instruments: Instrument[] = this.graphicalMusicSheet.ParentMusicSheet.Instruments;
-        const instrumentsVisible: number = instruments.filter((instrument) => instrument.Visible).length;
+        const instrumentsVisible: number = instruments.filter((instrument) => instrument.isVisible()).length;
         for (const bracket of musicSystem.InstrumentBrackets) {
             this.drawInstrumentBrace(bracket, musicSystem);
         }
@@ -354,6 +355,7 @@ export abstract class MusicSheetDrawer {
         if (!this.leadSheet) {
             for (const measureNumberLabel of musicSystem.MeasureNumberLabels) {
                 measureNumberLabel.SVGNode = this.drawLabel(measureNumberLabel, <number>GraphicalLayers.Notes);
+                (measureNumberLabel.SVGNode as SVGGElement)?.classList?.add("measure-number");
             }
         }
         for (const staffLine of musicSystem.StaffLines) {
@@ -389,6 +391,8 @@ export abstract class MusicSheetDrawer {
         this.drawOctaveShifts(staffLine);
 
         this.drawPedals(staffLine);
+
+        this.drawWavyLines(staffLine);
 
         this.drawExpressions(staffLine);
 
@@ -438,7 +442,10 @@ export abstract class MusicSheetDrawer {
      * @param layer Number of the layer that the lyrics should be drawn in
      */
     protected drawDashes(lyricsDashes: GraphicalLabel[]): void {
-        lyricsDashes.forEach(dash => dash.SVGNode = this.drawLabel(dash, <number>GraphicalLayers.Notes));
+        lyricsDashes.forEach(dash => {
+            dash.SVGNode = this.drawLabel(dash, <number>GraphicalLayers.Notes);
+            (dash.SVGNode as SVGGElement)?.classList.add("dash");
+        });
     }
 
     // protected drawSlur(slur: GraphicalSlur, abs: PointF2D): void {
@@ -450,6 +457,8 @@ export abstract class MusicSheetDrawer {
     }
 
     protected abstract drawPedals(staffLine: StaffLine): void;
+
+    protected abstract drawWavyLines(staffLine: StaffLine): void;
 
     protected drawStaffLines(staffLine: StaffLine): void {
         if (staffLine.StaffLines) {
@@ -526,7 +535,7 @@ export abstract class MusicSheetDrawer {
      * @param layer Layer to draw to
      * @param type Type of element to show bounding boxes for as string.
      */
-    private drawBoundingBoxes(startBox: BoundingBox, layer: number = 0, type: string = "all"): void {
+    private drawBoundingBoxes(startBox: BoundingBox, layer: number = 0, type: string = "all", drawClassName: boolean = false): void {
         const dataObjectString: string = (startBox.DataObject.constructor as any).name; // only works with non-minified build or sourcemap
         let typeMatch: boolean = false;
         if (type === "all") {
@@ -558,7 +567,11 @@ export abstract class MusicSheetDrawer {
             // }
         }
         if (typeMatch || dataObjectString === type) {
-            this.drawBoundingBox(startBox, undefined, true, dataObjectString, layer);
+            let labelText: string = undefined;
+            if (drawClassName) {
+                labelText = dataObjectString;
+            }
+            this.drawBoundingBox(startBox, undefined, true, labelText, layer);
         }
         layer++;
         startBox.ChildElements.forEach(bb => this.drawBoundingBoxes(bb, layer, type));
@@ -593,7 +606,9 @@ export abstract class MusicSheetDrawer {
         const rectNode: Node = this.renderRectangle(tmpRect, <number>GraphicalLayers.Background, layer, color, 0.5);
         if (labelText) {
             const label: Label = new Label(labelText);
-            this.renderLabel(new GraphicalLabel(label, 0.8, TextAlignmentEnum.CenterCenter, this.rules),
+            const gLabel: GraphicalLabel = new GraphicalLabel(label, 0.8, TextAlignmentEnum.CenterCenter, this.rules);
+            gLabel.setLabelPositionAndShapeBorders(); // this is necessary for it to render (gLabel.TextLines to be set).
+            this.renderLabel(gLabel,
                 layer, tmpRect.width, tmpRect.height, tmpRect.height, new PointF2D(tmpRect.x, tmpRect.y + 12));
             // theoretically we should return the nodes from renderLabel here as well, so they can also be removed later
         }

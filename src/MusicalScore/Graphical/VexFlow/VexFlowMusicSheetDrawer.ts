@@ -34,6 +34,9 @@ import { GraphicalGlissando } from "../GraphicalGlissando";
 import { VexFlowGlissando } from "./VexFlowGlissando";
 import { GraphicalLine } from "../GraphicalLine";
 import { GraphicalRectangle } from "../GraphicalRectangle";
+import { VexFlowGraphicalNote } from "./VexFlowGraphicalNote";
+import { SvgVexFlowBackend } from "./SvgVexFlowBackend";
+import { VexFlowVibratoBracket } from "./VexFlowVibratoBracket";
 
 /**
  * This is a global constant which denotes the height in pixels of the space between two lines of the stave
@@ -116,6 +119,15 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
     }
 
     protected drawStaffLine(staffLine: StaffLine): void {
+        const ctx: Vex.IRenderContext = this.backend.getContext();
+        const stafflineNode: Node = ctx.openGroup();
+        if (stafflineNode) {
+            (stafflineNode as SVGGElement).classList.add("staffline");
+            if (staffLine.ParentStaff) {
+                (stafflineNode as SVGGElement).id =
+                    `${staffLine.ParentStaff.ParentInstrument?.Name}${staffLine.ParentStaff.ParentInstrument?.Id}-${staffLine.ParentStaff?.Id}`;
+            }
+        }
         super.drawStaffLine(staffLine);
         const absolutePos: PointF2D = staffLine.PositionAndShape.AbsolutePosition;
         if (this.rules.RenderSlurs) {
@@ -124,6 +136,7 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
         if (this.rules.RenderGlissandi) {
             this.drawGlissandi(staffLine as VexFlowStaffLine, absolutePos);
         }
+        ctx.closeGroup();
     }
 
     private drawSlurs(vfstaffLine: VexFlowStaffLine, absolutePos: PointF2D): void {
@@ -151,7 +164,7 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
             const newEnd: PointF2D = new PointF2D(gGliss.Line.End.x + abs.x, gGliss.Line.End.y);
             // note that we do not add abs.y, because GraphicalGlissando.calculateLine() uses AbsolutePosition for y,
             //   because unfortunately RelativePosition seems imprecise.
-            this.drawLine(newStart, newEnd, gGliss.Color, gGliss.Width);
+            gGliss.Line.SVGElement = this.drawLine(newStart, newEnd, gGliss.Color, gGliss.Width);
         } else {
             const vfTie: VF.StaveTie = (gGliss as VexFlowGlissando).vfTie;
             if (vfTie) {
@@ -200,7 +213,8 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
         curvePointsInPixels.push(this.applyScreenTransformation(p2));
         curvePointsInPixels.push(this.applyScreenTransformation(p3));
         curvePointsInPixels.push(this.applyScreenTransformation(p4));
-        graphicalSlur.SVGElement = this.backend.renderCurve(curvePointsInPixels);
+        const startNote: VexFlowGraphicalNote = this.rules.GNote(graphicalSlur.slur.StartNote) as VexFlowGraphicalNote;
+        graphicalSlur.SVGElement = this.backend.renderCurve(curvePointsInPixels, true, startNote);
     }
 
     protected drawMeasure(measure: VexFlowMeasure): void {
@@ -215,10 +229,86 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
             log.warn("VexFlowMusicSheetDrawer.drawMeasure", ex);
         }
 
+        let newBuzzRollId: number = 0;
         // Draw the StaffEntries
         for (const staffEntry of measure.staffEntries) {
             this.drawStaffEntry(staffEntry);
+            newBuzzRollId = this.drawBuzzRolls(staffEntry, newBuzzRollId);
         }
+    }
+
+    protected drawBuzzRolls(staffEntry: GraphicalStaffEntry, newBuzzRollId): number {
+        for (const gve of staffEntry.graphicalVoiceEntries) {
+            for (const note of gve.notes) {
+                if (note.sourceNote.TremoloInfo?.tremoloUnmeasured) {
+                    const thickness: number = this.rules.TremoloBuzzRollThickness;
+                    const baseLength: number = 0.9;
+                    const baseHeight: number = 0.5;
+
+                    const vfNote: VexFlowGraphicalNote = note as VexFlowGraphicalNote;
+                    let stemTip: PointF2D;
+                    let stemHeight: number;
+                    const directionSign: number = vfNote.vfnote[0].getStemDirection(); // 1 or -1
+                    let stemElement: HTMLElement;
+                    if (this.backend instanceof SvgVexFlowBackend) {
+                        stemElement = vfNote.getStemSVG();
+                    }
+                    const hasBbox: boolean = (stemElement as any)?.getBbox !== undefined;
+                    if (hasBbox) {
+                        // apparently sometimes the stemElement is null, in that case we need to use the canvas method.
+                        const rect: SVGRect = (stemElement as any).getBBox();
+                        stemTip = new PointF2D(rect.x / 10, rect.y / 10);
+                        stemHeight = rect.height / 10;
+                    } else { // if this.backend instanceof CanvasVexFlowBackend // also seems to work for SVG
+                        stemHeight = vfNote.vfnote[0].getStemLength() / 10;
+                        stemTip = new PointF2D(
+                            (vfNote.vfnote[0].getStem() as any).x_begin / 10,
+                            (vfNote.vfnote[0].getStem() as any).y_top / 10,
+                        );
+                        if (directionSign === 1) {
+                            stemTip.y -= stemHeight;
+                        }
+                    }
+                    // this.DrawOverlayLine(stemTip, new PointF2D(stemTip.x + 5, stemTip.y), vfNote.ParentMusicPage); // debug
+
+                    let startHeight: number = stemTip.y + stemHeight / 3;
+                    if (vfNote.vfnote[0].getBeamCount() > 1) {
+                        startHeight = stemTip.y + (stemHeight / 2);
+                        if (directionSign === -1) {
+                            // downwards stem, z paints in downwards direction, so we need to start further up
+                            startHeight -= (baseHeight + 0.2);
+                        }
+                        // note that buzz rolls usually don't appear on notes smaller than 16ths, rather on longer ones
+                    }
+
+                    const buzzStartX: number = stemTip.x - 0.5; // top left start point
+                    const buzzStartY: number = startHeight;
+                    const pathPoints: PointF2D[] = [];
+                    // movements to draw the "z" point by point: (drawing by numbers)
+                    const movements: PointF2D[] = [
+                        new PointF2D(0, -thickness), // down a bit
+                        new PointF2D(baseLength-thickness, 0), // to the right
+                        new PointF2D(-baseLength+thickness,-baseHeight), // down left (etc)
+                        new PointF2D(0, -thickness),
+                        new PointF2D(baseLength, 0),
+                        new PointF2D(0, thickness),
+                        new PointF2D(-baseLength+thickness, 0),
+                        new PointF2D(baseLength-thickness, baseHeight),
+                        new PointF2D(0, thickness),
+                        new PointF2D(-baseLength, 0)
+                    ];
+                    let currentPoint: PointF2D = new PointF2D(buzzStartX, buzzStartY);
+                    pathPoints.push(currentPoint);
+                    for (const movement of movements) {
+                        currentPoint = pathPoints.last();
+                        pathPoints.push(new PointF2D(currentPoint.x + movement.x, currentPoint.y - movement.y));
+                    }
+                    this.DrawPath(pathPoints, vfNote.ParentMusicPage, true, `buzzRoll${newBuzzRollId}`);
+                    newBuzzRollId++;
+                }
+            }
+        }
+        return newBuzzRollId;
     }
 
     // private drawPixel(coord: PointF2D): void {
@@ -249,7 +339,8 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
      *  To get a MusicPage, use GraphicalNote.ParentMusicPage.
      */
     public DrawOverlayLine(start: PointF2D, stop: PointF2D, musicPage: GraphicalMusicPage,
-                           color: string = "#FF0000FF", lineWidth: number = 0.2): Node {
+                           color: string = "#FF0000FF", lineWidth: number = 0.2,
+                           id?: string): Node {
         if (!musicPage.PageNumber || musicPage.PageNumber > this.backends.length || musicPage.PageNumber < 1) {
             console.log("VexFlowMusicSheetDrawer.drawOverlayLine: invalid page number / music page number doesn't correspond to an existing backend.");
             return;
@@ -259,7 +350,22 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
 
         start = this.applyScreenTransformation(start);
         stop = this.applyScreenTransformation(stop);
-        return backendToUse.renderLine(start, stop, color, lineWidth * unitInPixels);
+        if (!id) {
+            id = `overlayLine ${start.x}/${start.y}`;
+        }
+        return backendToUse.renderLine(start, stop, color, lineWidth * unitInPixels, id);
+    }
+
+    public DrawPath(inputPoints: PointF2D[], musicPage: GraphicalMusicPage,
+        fill: boolean = true, id?: string): Node {
+        const musicPageIndex: number = musicPage.PageNumber - 1;
+        const backendToUse: VexFlowBackend = this.backends[musicPageIndex];
+
+        const transformedPoints: PointF2D[] = [];
+        for (const inputPoint of inputPoints) {
+            transformedPoints.push(this.applyScreenTransformation(inputPoint));
+        }
+        return backendToUse.renderPath(transformedPoints, fill, id);
     }
 
     protected drawSkyLine(staffline: StaffLine): void {
@@ -404,19 +510,26 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
             const label: GraphicalLabel = lyricsEntry.GraphicalLabel;
             label.Label.colorDefault = this.rules.DefaultColorLyrics;
             label.SVGNode = this.drawLabel(label, layer);
+            (label.SVGNode as SVGGElement)?.classList.add("lyrics");
         });
     }
 
     protected drawInstrumentBrace(brace: GraphicalObject, system: MusicSystem): void {
+        const ctx: Vex.IRenderContext = this.backend.getContext();
+        ctx.openGroup("brace");
         // Draw InstrumentBrackets at beginning of line
         const vexBrace: VexFlowInstrumentBrace = (brace as VexFlowInstrumentBrace);
-        vexBrace.draw(this.backend.getContext());
+        vexBrace.draw(ctx);
+        ctx.closeGroup();
     }
 
     protected drawGroupBracket(bracket: GraphicalObject, system: MusicSystem): void {
+        const ctx: Vex.IRenderContext = this.backend.getContext();
+        ctx.openGroup("bracket");
         // Draw InstrumentBrackets at beginning of line
         const vexBrace: VexFlowInstrumentBracket = (bracket as VexFlowInstrumentBracket);
-        vexBrace.draw(this.backend.getContext());
+        vexBrace.draw(ctx);
+        ctx.closeGroup();
     }
 
     protected drawOctaveShifts(staffLine: StaffLine): void {
@@ -451,14 +564,31 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
         }
     }
 
+    protected drawWavyLines(staffLine: StaffLine): void {
+        for (const graphicalWavyLine of staffLine.WavyLines) {
+            if (graphicalWavyLine) {
+                const vexFlowVibratoBracket: VexFlowVibratoBracket = graphicalWavyLine as VexFlowVibratoBracket;
+                const ctx: Vex.IRenderContext = this.backend.getContext();
+                const vfVibratoBracket: Vex.Flow.VibratoBracket = vexFlowVibratoBracket.getVibratoBracket();
+                (vfVibratoBracket as any).setContext(ctx);
+                vfVibratoBracket.draw();
+            }
+        }
+    }
+
     protected drawExpressions(staffline: StaffLine): void {
         // Draw all Expressions
         for (const abstractGraphicalExpression of staffline.AbstractExpressions) {
-            // Draw InstantaniousDynamics
+            // Draw InstantaneousDynamics
             if (abstractGraphicalExpression instanceof GraphicalInstantaneousDynamicExpression) {
                 this.drawInstantaneousDynamic((abstractGraphicalExpression as VexFlowInstantaneousDynamicExpression));
-                // Draw InstantaniousTempo
+                // Draw InstantaneousTempo
             } else if (abstractGraphicalExpression instanceof GraphicalInstantaneousTempoExpression) {
+                if (abstractGraphicalExpression.SourceExpression.parentMeasure?.MeasureNumber <= 1 &&
+                    !this.rules.RenderFirstTempoExpression
+                ) {
+                    continue;
+                }
                 const label: GraphicalLabel = (abstractGraphicalExpression as GraphicalInstantaneousTempoExpression).GraphicalLabel;
                 label.SVGNode = this.drawLabel(label, GraphicalLayers.Notes);
                 // Draw ContinuousDynamics
@@ -496,7 +626,7 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
                                                      graphicalExpression.ParentStaffLine.PositionAndShape.AbsolutePosition.y + line.Start.y);
                 const end: PointF2D = new PointF2D(graphicalExpression.ParentStaffLine.PositionAndShape.AbsolutePosition.x + line.End.x,
                                                    graphicalExpression.ParentStaffLine.PositionAndShape.AbsolutePosition.y + line.End.y);
-                this.drawLine(start, end, line.colorHex ?? "#000000", line.Width);
+                line.SVGElement = this.drawLine(start, end, line.colorHex ?? "#000000", line.Width);
                 // the null check for colorHex is not strictly necessary anymore, but the previous default color was red.
             }
         }
@@ -521,6 +651,9 @@ export class VexFlowMusicSheetDrawer extends MusicSheetDrawer {
         let color: string;
         if (this.rules.ColoringEnabled) {
             color = graphicalLabel.Label.colorDefault;
+            if (graphicalLabel.ColorXML) {
+                color = graphicalLabel.ColorXML;
+            }
             if (!color) {
                 color = this.rules.DefaultColorLabel;
             }

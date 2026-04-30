@@ -26,6 +26,7 @@ import {StemDirectionType} from "../VoiceData/VoiceEntry";
 import {NoteType, NoteTypeHandler} from "../VoiceData/NoteType";
 import { SystemLinesEnumHelper } from "../Graphical/SystemLinesEnum";
 import { ReaderPluginManager } from "./ReaderPluginManager";
+import { TremoloInfo } from "../VoiceData/Note";
 // import {Dictionary} from "typescript-collections";
 
 // FIXME: The following classes are missing
@@ -137,10 +138,20 @@ export class InstrumentReader {
     try {
       const measureNode: IXmlElement = this.xmlMeasureList[this.currentXmlMeasureIndex];
       const xmlMeasureListArr: IXmlElement[] = measureNode.elements();
+      let measureNumberXml: number;
       if (currentMeasure.Rules.UseXMLMeasureNumbers && !Number.isInteger(currentMeasure.MeasureNumberXML)) {
-        const measureNumberXml: number = parseInt(measureNode.attribute("number")?.value, 10);
+        measureNumberXml = parseInt(measureNode.attribute("number")?.value, 10);
         if (Number.isInteger(measureNumberXml)) {
             currentMeasure.MeasureNumberXML = measureNumberXml;
+        }
+      }
+      const widthFactorAttr: IXmlAttribute = measureNode.attribute("osmdWidthFactor"); // custom xml attribute
+      if (widthFactorAttr) {
+        const widthFactorValue: number = Number.parseFloat(widthFactorAttr.value);
+        if (typeof widthFactorValue === "number" && !isNaN(widthFactorValue)) {
+          currentMeasure.WidthFactor = widthFactorValue;
+        } else {
+          log.info(`xml parse: osmdWidthFactor invalid for measure ${measureNumberXml}`);
         }
       }
       let previousNode: IXmlElement; // needs a null check when accessed because of node index 0!
@@ -262,11 +273,18 @@ export class InstrumentReader {
           let noteDuration: Fraction = new Fraction(0, 1);
           let normalNotes: number = 2;
           let typeDuration: Fraction = undefined;
-          let isTuplet: boolean = false;
+          const restNote: boolean = xmlNode.element("rest") !== undefined;
+          // let isTuplet: boolean = false; // unused now
           if (xmlNode.element("duration")) {
             noteDivisions = parseInt(xmlNode.element("duration").value, 10);
             if (!isNaN(noteDivisions)) {
               noteDuration = new Fraction(noteDivisions, 4 * this.divisions);
+              if (restNote && noteDuration.RealValue > this.ActiveRhythm?.Rhythm.RealValue) {
+                // bug in Virtual Sheet Music Playground and potentially other exporters
+                //   that assigns 4 quarters (whole note) duration to full measure rest in 2/4 measures
+                // note that this.ActiveRhythm can be undefined in some test samples
+                noteDuration = this.ActiveRhythm.Rhythm.clone();
+              }
               if (noteDivisions === 0) {
                 noteDuration = this.getNoteDurationFromTypeNode(xmlNode);
               } else {
@@ -278,7 +296,7 @@ export class InstrumentReader {
                 if (time?.element("normal-notes")) {
                   normalNotes = parseInt(time.element("normal-notes").value, 10);
                 }
-                isTuplet = true;
+                // isTuplet = true;
               }
             } else {
               const errorMsg: string = ITextTranslation.translateText("ReaderErrorMessages/NoteDurationError", "Invalid Note Duration.");
@@ -288,7 +306,6 @@ export class InstrumentReader {
             }
           }
 
-          const restNote: boolean = xmlNode.element("rest") !== undefined;
           //log.info("New note found!", noteDivisions, noteDuration.toString(), restNote);
 
           const notationsNode: IXmlElement = xmlNode.combinedElement("notations"); // select all notation nodes
@@ -321,14 +338,14 @@ export class InstrumentReader {
           // check stem element
           const [stemDirectionXml, stemColorXml, noteheadColorXml] = this.getStemDirectionAndColors(xmlNode);
 
-          // check Tremolo
-          let tremoloStrokes: number = 0;
-          let vibratoStrokes: boolean = false;
+          // check Tremolo, Vibrato
+          let tremoloInfo: TremoloInfo;
+          //let vibratoStrokes: boolean = false; // not necessary, handled by wavy-line
           if (notationsNode) {
             const ornamentsNode: IXmlElement = notationsNode.element("ornaments");
             if (ornamentsNode) {
-              tremoloStrokes = this.getTremoloStrokes(ornamentsNode);
-              vibratoStrokes = this.getVibratoStrokes(ornamentsNode);
+              tremoloInfo = this.getTremoloInfo(ornamentsNode);
+              this.getWavyLines(ornamentsNode, xmlNode, currentFraction, previousFraction);
             }
           }
 
@@ -346,8 +363,10 @@ export class InstrumentReader {
             || (isGraceNote && !isChord)
             || (!isGraceNote && lastNoteWasGrace)
           ) {
-            this.currentVoiceGenerator.createVoiceEntry(musicTimestamp, this.currentStaffEntry, !restNote && !isGraceNote,
+            this.currentVoiceGenerator.createVoiceEntry(musicTimestamp, this.currentStaffEntry, !isGraceNote,
                                                         isGraceNote, graceNoteSlash, graceSlur);
+            // we previously excluded rest notes from a voice's voice entry (!restNote && !isGraceNote),
+            //   but there seems to be no reason to. Rest notes also belong to a voice line. See #1612
           }
           if (!isGraceNote && !isChord) {
             previousFraction = currentFraction.clone();
@@ -380,17 +399,14 @@ export class InstrumentReader {
           if (this.activeRhythm) {
             // (*) this.musicSheet.SheetPlaybackSetting.Rhythm = this.activeRhythm.Rhythm;
           }
-          if (!isTuplet && !isGraceNote) {
-            noteDuration = new Fraction(noteDivisions, 4 * this.divisions);
-          }
           const dots: number = xmlNode.elements("dot").length;
           this.currentVoiceGenerator.read(
             xmlNode, noteDuration, typeDuration, noteTypeXml, normalNotes, restNote,
             this.currentStaffEntry, this.currentMeasure,
             measureStartAbsoluteTimestamp,
             this.maxTieNoteFraction, isChord, octavePlusOne,
-            printObject, isCueNote, isGraceNote, stemDirectionXml, tremoloStrokes, stemColorXml, noteheadColorXml,
-            vibratoStrokes, dots
+            printObject, isCueNote, isGraceNote, stemDirectionXml, tremoloInfo, stemColorXml, noteheadColorXml,
+            dots
           );
 
           // notationsNode created further up for multiple checks
@@ -420,7 +436,8 @@ export class InstrumentReader {
             previousFraction = new Fraction(0, 1);
           }
         } else if (xmlNode.name === "direction") {
-          const directionTypeNode: IXmlElement = xmlNode.element("direction-type");
+          const directionTypeNodes: IXmlElement[] = xmlNode.elements("direction-type");
+          const directionTypeNode: IXmlElement = directionTypeNodes[0]; // kept for repetition handler
           // (*) MetronomeReader.readMetronomeInstructions(xmlNode, this.musicSheet, this.currentXmlMeasureIndex);
           let relativePositionInMeasure: number = Math.min(1, currentFraction.RealValue);
           if (this.activeRhythm !== undefined && this.activeRhythm.Rhythm) {
@@ -438,13 +455,26 @@ export class InstrumentReader {
              expressionReader = this.expressionReaders[staffIndex];
            }
            if (expressionReader) {
-             if (directionTypeNode.element("octave-shift")) {
+             if (directionTypeNodes.some(dt => dt.element("octave-shift"))) {
                expressionReader.readExpressionParameters(
                  xmlNode, this.instrument, this.divisions, currentFraction, previousFraction, this.currentMeasure.MeasureNumber, true
                );
-               expressionReader.addOctaveShift(xmlNode, this.currentMeasure, previousFraction.clone());
+               // Count how many VoiceEntries at the current timestamp were parsed before this stop.
+               // Grace notes before/after a stop share the same timestamp; this count lets the
+               // renderer distinguish which VoiceEntries fall under the octave shift.
+               let endVoiceEntryCount: number = 0;
+               let endFraction: Fraction;
+               if (this.currentStaffEntry?.Timestamp?.Equals(currentFraction)) {
+                 // Grace notes at this timestamp — use currentFraction and track which entries are covered
+                 endVoiceEntryCount = this.currentStaffEntry.VoiceEntries.length;
+                 endFraction = currentFraction.clone();
+               } else {
+                 // Normal case: last note was a real note, use previousFraction
+                 endFraction = previousFraction.clone();
+               }
+               expressionReader.addOctaveShift(xmlNode, this.currentMeasure, endFraction, endVoiceEntryCount);
              }
-             if (directionTypeNode.element("pedal")) {
+             if (directionTypeNodes.some(dt => dt.element("pedal"))) {
               expressionReader.readExpressionParameters(
                 xmlNode, this.instrument, this.divisions, currentFraction, previousFraction, this.currentMeasure.MeasureNumber, true
               );
@@ -465,8 +495,9 @@ export class InstrumentReader {
            }
           }
           const location: IXmlAttribute = xmlNode.attribute("location");
+          const locationValue: string = location?.value ?? "right"; // right is assumed by default in MusicXML spec, see #1522
           const isEndingBarline: boolean = (xmlNodeIndex === xmlMeasureListArr.length - 1);
-          if (isEndingBarline || (location && location.value === "right")) {
+          if (isEndingBarline || locationValue === "right") {
             const stringValue: string = xmlNode.element("bar-style")?.value;
             // TODO apparently we didn't anticipate bar-style not existing (the ? above was missing). how to handle?
             if (stringValue) {
@@ -576,17 +607,19 @@ export class InstrumentReader {
    *  @return color in Vexflow format #[A]RGB or undefined for invalid xmlColorString
    */
   public parseXmlColor(xmlColorString: string): string {
-    if (!xmlColorString) {
-      return undefined;
-    }
+    return xmlColorString;
+    // previous implementation:
+    // if (!xmlColorString) {
+    //   return undefined;
+    // }
 
-    if (xmlColorString.length === 7) { // #RGB
-      return xmlColorString;
-    } else if (xmlColorString.length === 9) { // #ARGB
-      return "#" + xmlColorString.substr(3); // cut away alpha channel
-    } else {
-      return undefined; // invalid xml color
-    }
+    // if (xmlColorString.length === 7) { // #RGB
+    //   return xmlColorString;
+    // } else if (xmlColorString.length === 9) { // #ARGB
+    //   return "#" + xmlColorString.substr(3); // cut away alpha channel // why?
+    // } else {
+    //   return undefined; // invalid xml color
+    // }
   }
 
   public doCalculationsAfterDurationHasBeenSet(): void {
@@ -930,8 +963,8 @@ export class InstrumentReader {
       const typeList: IXmlElement[] = [];
       for (let idx: number = 0, len: number = timeList.length; idx < len; ++idx) {
         const xmlNode: IXmlElement = timeList[idx];
-        beatsList.push.apply(beatsList, xmlNode.elements("beats"));
-        typeList.push.apply(typeList, xmlNode.elements("beat-type"));
+        beatsList.push(...xmlNode.elements("beats"));
+        typeList.push(...xmlNode.elements("beat-type"));
       }
       if (!senzaMisura) {
         try {
@@ -1073,11 +1106,13 @@ export class InstrumentReader {
             let lastStaffEntryBefore: SourceStaffEntry;
             const duration: Fraction = this.activeRhythm.Rhythm;
             if (duration.RealValue > 0 &&
-              instructionTimestamp.RealValue / duration.RealValue > 0.90) {
-                if (!this.currentMeasure.LastInstructionsStaffEntries[key - 1]) {
-                  this.currentMeasure.LastInstructionsStaffEntries[key - 1] = new SourceStaffEntry(undefined, this.instrument.Staves[key - 1]);
-                }
-                lastStaffEntryBefore = this.currentMeasure.LastInstructionsStaffEntries[key - 1];
+              instructionTimestamp.RealValue / duration.RealValue > 0.90 && // necessary for #1120
+              duration.RealValue !== instructionTimestamp.RealValue // necessary for #1461
+            ) {
+              if (!this.currentMeasure.LastInstructionsStaffEntries[key - 1]) {
+                this.currentMeasure.LastInstructionsStaffEntries[key - 1] = new SourceStaffEntry(undefined, this.instrument.Staves[key - 1]);
+              }
+              lastStaffEntryBefore = this.currentMeasure.LastInstructionsStaffEntries[key - 1];
             }
             // TODO figure out a more elegant way to do this. (see #1120)
             //   the problem is that not all the staffentries in the measure exist yet,
@@ -1230,23 +1265,32 @@ export class InstrumentReader {
    * @returns {Fraction}
    */
   private getNoteDurationForTuplet(xmlNode: IXmlElement): Fraction {
-    let duration: Fraction = new Fraction(0, 1);
-    const typeDuration: Fraction = this.getNoteDurationFromTypeNode(xmlNode);
-    if (xmlNode.element("time-modification")) {
-      const time: IXmlElement = xmlNode.element("time-modification");
-      if (time) {
-        if (time.element("actual-notes") !== undefined && time.element("normal-notes")) {
-          const actualNotes: IXmlElement = time.element("actual-notes");
-          const normalNotes: IXmlElement = time.element("normal-notes");
-          if (actualNotes !== undefined && normalNotes) {
-            const actual: number = parseInt(actualNotes.value, 10);
-            const normal: number = parseInt(normalNotes.value, 10);
-            duration = new Fraction(normal * typeDuration.Numerator, actual * typeDuration.Denominator);
-          }
-        }
-      }
-    }
-    return duration;
+    const durationNode: IXmlElement = xmlNode.element("duration");
+    const durationValue: number = Number.parseInt(durationNode.value, 10);
+    return new Fraction(durationValue, this.divisions * 4);
+    // old method: calculate duration from type, tuplet normal notes etc. this was way more complex and inaccurate
+    // let duration: Fraction = new Fraction(0, 1);
+    // const typeDuration: Fraction = this.getNoteDurationFromTypeNode(xmlNode);
+    // // ^ TODO we need to respect dots for typeDuration. This is much more complicated than just taking duration from XML.
+    // if (xmlNode.element("time-modification")) {
+    //   const time: IXmlElement = xmlNode.element("time-modification");
+    //   if (time) {
+    //     if (time.element("actual-notes") !== undefined && time.element("normal-notes")) {
+    //       const actualNotes: IXmlElement = time.element("actual-notes");
+    //       const normalNotes: IXmlElement = time.element("normal-notes");
+    //       const normalDot: boolean = time.element("normal-dot") ? true : false;
+    //       if (actualNotes !== undefined && normalNotes) {
+    //         const actual: number = parseInt(actualNotes.value, 10);
+    //         let normal: number = parseInt(normalNotes.value, 10);
+    //         if (normalDot) {
+    //           normal *= 1.5;
+    //         }
+    //         duration = new Fraction(normal * typeDuration.Numerator + typeDuration.WholeValue, actual * typeDuration.Denominator);
+    //       }
+    //     }
+    //   }
+    // }
+    // return duration;
   }
 
   private readExpressionStaffNumber(xmlNode: IXmlElement): number {
@@ -1416,30 +1460,53 @@ export class InstrumentReader {
     return null;
   }
 
-  private getTremoloStrokes(ornamentsNode: IXmlElement): number {
+  private getTremoloInfo(ornamentsNode: IXmlElement): TremoloInfo {
+    let tremoloStrokes: number;
+    let tremoloUnmeasured: boolean;
     const tremoloNode: IXmlElement = ornamentsNode.element("tremolo");
     if (tremoloNode) {
       const tremoloType: Attr = tremoloNode.attribute("type");
-      if (tremoloType && tremoloType.value === "single") {
-        const tremoloStrokesGiven: number = parseInt(tremoloNode.value, 10);
-        if (tremoloStrokesGiven > 0) {
-          return tremoloStrokesGiven;
+      if (tremoloType) {
+        if (tremoloType.value === "single") {
+          const tremoloStrokesGiven: number = parseInt(tremoloNode.value, 10);
+          if (tremoloStrokesGiven > 0) {
+            tremoloStrokes = tremoloStrokesGiven;
+          }
+        } else {
+          tremoloStrokes = 0;
         }
+        if (tremoloType.value === "unmeasured") {
+          tremoloUnmeasured = true;
+        }
+        // TODO implement type "start". Vexflow doesn't have tremolo beams yet though (shorter than normal beams)
       }
-      // TODO implement type "start". Vexflow doesn't have tremolo beams yet though (shorter than normal beams)
     }
-    return 0;
+    return {
+      tremoloStrokes: tremoloStrokes,
+      tremoloUnmeasured: tremoloUnmeasured
+    };
   }
 
-  private getVibratoStrokes(ornamentsNode: IXmlElement): boolean {
-    const vibratoNode: IXmlElement = ornamentsNode.element("wavy-line");
-    if (vibratoNode !== undefined) {
-      const vibratoType: Attr = vibratoNode.attribute("type");
-      if (vibratoType && vibratoType.value === "start") {
-        return true;
+  private getWavyLines(ornamentsNode: IXmlElement, xmlNode: IXmlElement, currentFraction: Fraction, previousFraction: Fraction): void {
+    const wavyLineNodes: IXmlElement[] = ornamentsNode.elements("wavy-line");
+    if (!wavyLineNodes) {
+      return;
+    }
+    /* As mentioned elsewhere, the wavy-line is technically an ornament element, but is specified and behaves
+        very much like a continuous expression, so makes more sense to interpret as an expression in our model.
+    */
+    for (const wavyLineNode of wavyLineNodes) {
+      const expressionReader: ExpressionReader = this.expressionReaders[this.readExpressionStaffNumber(xmlNode) - 1];
+      if (expressionReader) {
+        //Read placement from the wavy line node
+        expressionReader.readExpressionParameters(
+          wavyLineNode, this.instrument, this.divisions, currentFraction, previousFraction, this.currentMeasure.MeasureNumber, false
+        );
+        expressionReader.addWavyLine(
+          wavyLineNode, this.currentMeasure, currentFraction, previousFraction
+        );
       }
     }
-    return false;
   }
 
   private getNoteStaff(xmlNode: IXmlElement): number {

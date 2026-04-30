@@ -213,11 +213,14 @@ export class ArticulationReader {
       }
     }
 
-    const nodeFingering: IXmlElement = technicalNode.element("fingering");
-    if (nodeFingering) {
+    const nodeFingerings: IXmlElement[] = technicalNode.elements("fingering");
+    for (const nodeFingering of nodeFingerings) {
+      // if nodeFingerings.length > 1: isBulkFingering = true in MusicSheetCalculator
       const currentTechnicalInstruction: TechnicalInstruction = this.createTechnicalInstruction(nodeFingering, currentNote);
       currentTechnicalInstruction.type = TechnicalInstructionType.Fingering;
-      currentNote.Fingering = currentTechnicalInstruction;
+      if (!currentNote.Fingering) {
+        currentNote.Fingering = currentTechnicalInstruction;
+      }
       currentVoiceEntry.TechnicalInstructions.push(currentTechnicalInstruction);
     }
     const nodeString: IXmlElement = technicalNode.element("string");

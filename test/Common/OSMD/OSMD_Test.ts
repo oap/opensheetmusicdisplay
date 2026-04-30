@@ -1,4 +1,4 @@
-import chai = require("chai");
+import chai from "chai";
 import { OpenSheetMusicDisplay } from "../../../src/OpenSheetMusicDisplay/OpenSheetMusicDisplay";
 import { TestUtils } from "../../Util/TestUtils";
 import { VoiceEntry, Instrument, Note, Staff, Voice, GraphicalStaffEntry, GraphicalNote,
@@ -172,7 +172,8 @@ describe("OpenSheetMusicDisplay Main Export", () => {
         );
     });
 
-    it("load something invalid by URL", (done: Mocha.Done) => {
+    // skip: this test is unnecessary and creates traffic (to google)
+    it.skip("load something invalid by URL", (done: Mocha.Done) => {
         const url: string = "https://www.google.com";
         const div: HTMLElement = TestUtils.getDivElement(document);
         const opensheetmusicdisplay: OpenSheetMusicDisplay = TestUtils.createOpenSheetMusicDisplay(div);
@@ -188,7 +189,7 @@ describe("OpenSheetMusicDisplay Main Export", () => {
                 }
             }
         );
-    }).timeout(5000);
+    });
 
     it("load invalid URL", (done: Mocha.Done) => {
         const url: string = "https://www.afjkhfjkauu2ui3z2uiu.com";
@@ -206,7 +207,7 @@ describe("OpenSheetMusicDisplay Main Export", () => {
                 }
             }
         );
-    }).timeout(5000);
+    });
 
     it("load invalid XML string", (done: Mocha.Done) => {
         const xml: string = "<?xml";
@@ -323,9 +324,16 @@ describe("OpenSheetMusicDisplay Main Export", () => {
                 cursor.next();
                 chai.expect(cursor.NotesUnderCursor().length).to.greaterThanOrEqual(1);
                 chai.expect(cursor.Iterator.currentTimeStamp.RealValue).to.equal(0);
+                // go past end of sheet if repetitions are ignored, which we don't do here (anymore). So, we should not reach the end here.
+                for (let i: number = 1; i <= 260; i++) {
+                    cursor.next();
+                }
+                chai.expect(cursor.Iterator.EndReached).to.equal(false);
                 // go past end of sheet
                 for (let i: number = 1; i <= 260; i++) {
-                    cursor.next(); // go past end of sheet: after 258 times in Clementi 36/1/1, the last timestamp is reached
+                    cursor.next();
+                    // go past end of sheet:
+                    //   after ~520 times (260 * 2) in Clementi 36/1/1, the last timestamp is reached
                 }
                 chai.expect(cursor.Iterator.EndReached).to.equal(true);
                 // try to go back again after going beyond end of sheet
@@ -403,6 +411,81 @@ describe("OpenSheetMusicDisplay Main Export", () => {
                     chai.expect(graphicalNotes.length).to.equal(numNotesBefore + 1);
                 }
             });
+        });
+    });
+
+    describe("cursor with notehead none (invisible notes)", () => {
+        let osmd: OpenSheetMusicDisplay;
+
+        beforeEach((done: Mocha.Done) => {
+            const div: HTMLElement = TestUtils.getDivElement(document);
+            osmd = TestUtils.createOpenSheetMusicDisplay(div);
+            const score: Document = TestUtils.getScore("test_cursor_skip_notehead_none.musicxml");
+            osmd.load(score).then(
+                (_: {}) => {
+                    osmd.render();
+                    done();
+                },
+                done
+            ).catch(done);
+        });
+
+        it("should skip entries where all notes have notehead none when SkipInvisibleNotes is true", () => {
+            osmd.cursors[0].SkipInvisibleNotes = true;
+            osmd.cursors[0].show();
+
+            // Start at first visible note (C4 in treble clef reads as C4 = 60)
+            chai.expect(osmd.cursors[0].Iterator.currentTimeStamp.RealValue).to.equal(0);
+            const firstNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(firstNotes.length).to.be.greaterThan(0);
+            const firstHalfTone: number = firstNotes[0].halfTone;
+
+            // Move to next - should skip the D4 (notehead none) and go to next visible note
+            osmd.cursors[0].next();
+            const secondNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(secondNotes.length).to.be.greaterThan(0);
+            const secondHalfTone: number = secondNotes[0].halfTone;
+            // Second note should be different from first (skipped the invisible note)
+            chai.expect(secondHalfTone).to.not.equal(firstHalfTone);
+
+            // Move to next - should skip another notehead none entry and reach the final measure
+            osmd.cursors[0].next();
+            const thirdNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(thirdNotes.length).to.be.greaterThan(0);
+            const thirdHalfTone: number = thirdNotes[0].halfTone;
+            // Third note should be different from second
+            chai.expect(thirdHalfTone).to.not.equal(secondHalfTone);
+        });
+
+        it("should not skip entries with notehead none when SkipInvisibleNotes is false", () => {
+            osmd.cursors[0].SkipInvisibleNotes = false;
+            osmd.cursors[0].show();
+
+            // Start at first note
+            chai.expect(osmd.cursors[0].Iterator.currentTimeStamp.RealValue).to.equal(0);
+            const firstNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(firstNotes.length).to.be.greaterThan(0);
+
+            // Move through all 4 notes in measure 1 (including the invisible ones)
+            osmd.cursors[0].next();
+            const secondNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(secondNotes.length).to.be.greaterThan(0);
+
+            osmd.cursors[0].next();
+            const thirdNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(thirdNotes.length).to.be.greaterThan(0);
+
+            osmd.cursors[0].next();
+            const fourthNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(fourthNotes.length).to.be.greaterThan(0);
+
+            // One more next should move to measure 2
+            osmd.cursors[0].next();
+            const fifthNotes: Note[] = osmd.cursors[0].NotesUnderCursor();
+            chai.expect(fifthNotes.length).to.be.greaterThan(0);
+
+            // Verify we've advanced 5 times total (4 notes in measure 1 + 1 in measure 2)
+            chai.expect(osmd.cursors[0].Iterator.currentTimeStamp.RealValue).to.be.greaterThan(0);
         });
     });
 

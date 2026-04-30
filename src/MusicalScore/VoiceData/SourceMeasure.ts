@@ -60,6 +60,16 @@ export class SourceMeasure {
     /** Whether the MusicXML says to print a new page (page break). See OSMDOptions.newPageFromXML */
     public printNewPageXml: boolean = false;
     public IsSystemStartMeasure: boolean = false;
+    /** The graphical measure width will be multiplied by this factor.
+     * E.g. factor 0.6 = 60% will make the measure only 60% as long as before.
+     * Note that this potentially causes issues by counteracting systems like lyrics overlap prevention,
+     * and if you give Vexflow too little width to render it will eventually cause other layout issues too.
+     * This factor is also read by a custom XML attribute osmdWidthFactor in the measure node,
+     *   e.g. <measure number="1" osmdWidthFactor="0.6">
+     * This will either be multiplicative with a sheet-wide widthFactor or override it, depending on settings.
+     *   (TODO sheet-wide widthFactor not yet implemented)
+     */
+    public WidthFactor: number = 1;
 
     private measureNumber: number;
     public MeasureNumberXML: number;
@@ -430,8 +440,10 @@ export class SourceMeasure {
             for (let j: number = 0; j < musicSheet.Instruments[i].Staves.length; j++) {
                 const lastStaffEntry: SourceStaffEntry = this.getLastSourceStaffEntryForInstrument(inSourceMeasureInstrumentIndex + j);
                 if (lastStaffEntry !== undefined && lastStaffEntry.Timestamp) {
-                    if (instrumentDuration.lt(Fraction.plus(lastStaffEntry.Timestamp, lastStaffEntry.calculateMaxNoteLength()))) {
-                        instrumentDuration = Fraction.plus(lastStaffEntry.Timestamp, lastStaffEntry.calculateMaxNoteLength());
+                    const lastStaffEntryDuration: Fraction = lastStaffEntry.calculateMaxNoteLength(false);
+                    // untilEndOfTie = false: don't set measure duration until end of tie, which could be in next measure!
+                    if (instrumentDuration.lt(Fraction.plus(lastStaffEntry.Timestamp, lastStaffEntryDuration))) {
+                        instrumentDuration = Fraction.plus(lastStaffEntry.Timestamp, lastStaffEntryDuration);
                     }
                 }
             }
@@ -468,13 +480,24 @@ export class SourceMeasure {
         return false;
     }
 
+    public beginsWithRepetition(): boolean {
+        return this.beginsWithLineRepetition() || this.beginsWithWordRepetition();
+    }
+
     public beginsWithLineRepetition(): boolean {
         for (let idx: number = 0, len: number = this.FirstRepetitionInstructions.length; idx < len; ++idx) {
             const instr: RepetitionInstruction = this.FirstRepetitionInstructions[idx];
             if (instr.type === RepetitionInstructionEnum.StartLine) {
+                // Skip virtual "overall repetition" StartLine markers (FromWords=true) that are created by RepetitionCalculator
+                //   for cursor/playback purposes - these should not force a visible repeat barline.
+                //   It just creates a virtual repetition, which basically means the whole piece is a repetition, repeated 0 times.
+                if (instr.parentRepetition !== undefined && instr.parentRepetition.FromWords) {
+                    continue;
+                }
                 return true;
             }
-            if (instr.parentRepetition !== undefined && instr === instr.parentRepetition.startMarker && !instr.parentRepetition.FromWords) {
+            if (instr.parentRepetition !== undefined && instr === instr.parentRepetition.startMarker && !instr.parentRepetition.FromWords
+                && instr.type !== RepetitionInstructionEnum.None) {
                 return true;
             }
         }
@@ -589,15 +612,14 @@ export class SourceMeasure {
      * @param instrumentIndex
      * @returns {SourceStaffEntry}
      */
-    private getLastSourceStaffEntryForInstrument(instrumentIndex: number): SourceStaffEntry {
+    private getLastSourceStaffEntryForInstrument(instrumentIndex: number, skipChordOnlyEntry: boolean = true): SourceStaffEntry {
         let entry: SourceStaffEntry;
         for (let i: number = this.verticalSourceStaffEntryContainers.length - 1; i >= 0; i--) {
             entry = this.verticalSourceStaffEntryContainers[i].StaffEntries[instrumentIndex];
-            if (entry) {
-                break;
+            if (entry && (!skipChordOnlyEntry || entry.VoiceEntries.length > 0)) {
+                return entry;
             }
         }
-        return entry;
     }
 
     public canBeReducedToMultiRest(): boolean {
@@ -611,7 +633,7 @@ export class SourceMeasure {
                 continue;
             }
             for (const staffEntry of container.StaffEntries) {
-                if (!staffEntry || !staffEntry.ParentStaff.ParentInstrument.Visible) {
+                if (!staffEntry || !staffEntry.ParentStaff.isVisible()) {
                     continue; // ignore notes in invisible instruments (instruments not shown)
                 }
                 if (staffEntry.ChordContainers.length > 0) {

@@ -8,6 +8,7 @@ export class Staff {
         this.parentInstrument = parentInstrument;
         this.id = instrumentStaffId;
         this.audible = true;
+        this.Visible = true;
         this.following = true;
         this.isJianpuStaff = false; // TODO combined test: = this.parentInstrument.Id === 2;
         // TODO set to false / set dynamically
@@ -15,6 +16,7 @@ export class Staff {
 
     public idInMusicSheet: number;
     public audible: boolean;
+    public Visible: boolean;
     public following: boolean;
     public isTab: boolean = false;
     public isJianpuStaff: boolean = false;
@@ -50,5 +52,9 @@ export class Staff {
     }
     public set StafflineCount(value: number) {
         this.stafflineCount = value;
+    }
+    /** Checks whether Staff.Visible and Staff.ParentInstrument.Visible. */
+    public isVisible(): boolean {
+        return this.Visible && this.ParentInstrument.Visible;
     }
 }

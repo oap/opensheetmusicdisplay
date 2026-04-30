@@ -10,6 +10,7 @@ import {PointF2D} from "../../../Common/DataObjects/PointF2D";
 import {BackendType} from "../../../OpenSheetMusicDisplay/OSMDOptions";
 import {EngravingRules} from "../EngravingRules";
 import log from "loglevel";
+import { VexFlowGraphicalNote } from "./VexFlowGraphicalNote";
 
 export class SvgVexFlowBackend extends VexFlowBackend {
 
@@ -71,10 +72,7 @@ export class SvgVexFlowBackend extends VexFlowBackend {
         return true;
     }
 
-    public clear(): void {
-        if (!this.ctx) {
-            return;
-        }
+    public free(): void {
         //const { svg } = this.ctx; // seems to make svg static between osmd instances.
         const svg: SVGElement = this.ctx.svg;
         // removes all children from the SVG element,
@@ -82,6 +80,13 @@ export class SvgVexFlowBackend extends VexFlowBackend {
         while (svg.lastChild) {
             svg.removeChild(svg.lastChild);
         }
+    }
+
+    public clear(): void {
+        if (!this.ctx) {
+            return;
+        }
+        this.free();
 
         // set background color if not transparent
         if (this.rules.PageBackgroundColor) {
@@ -165,9 +170,9 @@ export class SvgVexFlowBackend extends VexFlowBackend {
         return node;
     }
 
-    public renderLine(start: PointF2D, stop: PointF2D, color: string = "#FF0000FF", lineWidth: number = 2): Node {
+    public renderLine(start: PointF2D, stop: PointF2D, color: string = "#FF0000FF", lineWidth: number = 2, id?: string): Node {
         this.ctx.save();
-        const node: Node = this.ctx.openGroup("line");
+        const node: Node = this.ctx.openGroup("line", id);
         this.ctx.beginPath();
         this.ctx.moveTo(start.x, start.y);
         this.ctx.lineTo(stop.x, stop.y);
@@ -185,8 +190,12 @@ export class SvgVexFlowBackend extends VexFlowBackend {
         return node;
     }
 
-    public renderCurve(points: PointF2D[]): Node {
-        const node: Node = this.ctx.openGroup("curve");
+    public renderCurve(points: PointF2D[], isSlur?: boolean, startNote?: VexFlowGraphicalNote): Node {
+        let slurId: string = undefined;
+        if (isSlur && startNote) {
+            slurId = `${startNote.getSVGId()}-slur`;
+        }
+        const node: Node = this.ctx.openGroup("curve", slurId);
         this.ctx.beginPath();
         this.ctx.moveTo(points[0].x, points[0].y);
         this.ctx.bezierCurveTo(
@@ -210,6 +219,30 @@ export class SvgVexFlowBackend extends VexFlowBackend {
         //this.ctx.stroke();
         this.ctx.closePath();
         this.ctx.fill();
+        this.ctx.closeGroup();
+        return node;
+    }
+
+    public renderPath(points: PointF2D[], fill: boolean = true, id?: string): Node {
+        const node: Node = this.ctx.openGroup("path", id);
+        this.ctx.beginPath();
+        let currentPoint: PointF2D;
+        for (const point of points) {
+            if (!currentPoint) {
+                this.ctx.moveTo(point.x, point.y);
+                currentPoint = point;
+                continue;
+            }
+            this.ctx.lineTo(point.x, point.y);
+            // this.ctx.stroke();
+        }
+        this.ctx.closePath();
+        if (fill) {
+            this.ctx.fill();
+        } else {
+            this.ctx.stroke(); // just trace outline, don't fill inner area
+        }
+        this.ctx.stroke();
         this.ctx.closeGroup();
         return node;
     }

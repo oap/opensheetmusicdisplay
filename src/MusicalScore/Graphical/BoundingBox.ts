@@ -297,22 +297,36 @@ export class BoundingBox {
     /**
      * This method calculates the BoundingBoxes
      */
-    public calculateBoundingBox(): void {
+    public calculateBoundingBox(ignoreClasses: string[] = []): void {
         if (this.childElements.length === 0) {
             return;
         }
         for (let idx: number = 0, len: number = this.ChildElements.length; idx < len; ++idx) {
             const childElement: BoundingBox = this.ChildElements[idx];
-            if (childElement.dataObject instanceof GraphicalLabel) {
-                const gLabel: GraphicalLabel = childElement.dataObject as GraphicalLabel;
+            let calculateChildBbox: boolean = true;
+            for (const classToIgnore of ignoreClasses) {
+                const gObject: GraphicalObject = childElement.DataObject as GraphicalObject;
+                if (gObject && gObject.isInstanceOfClass && gObject.isInstanceOfClass(classToIgnore)) {
+                    calculateChildBbox = false;
+                    break;
+                    // measure bbox gets calculated incorrectly, especially with RenderSingleHorizontalStaffline
+                    //   the correct width was previously set via MusicSystemBuilder.setMeasureWidth().
+                }
+            }
+            if (!calculateChildBbox) {
+                continue;
+            }
+
+            if (childElement.DataObject instanceof GraphicalLabel) { // Note: DataObject is capitalized here to match develop's `childElement.DataObject`
+                const gLabel: GraphicalLabel = childElement.DataObject as GraphicalLabel;
                 gLabel.setLabelPositionAndShapeBorders();
                 for (const subChildElement of gLabel.PositionAndShape.ChildElements) {
-                    subChildElement.calculateBoundingBox();
+                    subChildElement.calculateBoundingBox(ignoreClasses);
                     // this is experimental and probably doesn't solve the gLabel bbox issue
                 }
                 // calculateBoundingBox() gets the wrong borders and size.height for GraphicalLabels
             } else {
-                childElement.calculateBoundingBox();
+                childElement.calculateBoundingBox(ignoreClasses);
             }
         }
 
@@ -441,7 +455,7 @@ export class BoundingBox {
             - Math.max(this.AbsolutePosition.x + this.borderLeft, psi.absolutePosition.x + psi.borderLeft);
         const overlapHeight: number = Math.min(this.AbsolutePosition.y + this.borderBottom, psi.absolutePosition.y + psi.borderBottom)
             - Math.max(this.AbsolutePosition.y + this.borderTop, psi.absolutePosition.y + psi.borderTop);
-        if (overlapWidth > 0 && overlapHeight > 0) {
+        if (overlapWidth >= 0 && overlapHeight >= 0) {
             return true;
         }
         return false;

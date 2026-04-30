@@ -205,13 +205,13 @@ export class SourceStaffEntry {
         return duration;
     }
 
-    public calculateMaxNoteLength(): Fraction {
+    public calculateMaxNoteLength(untilEndOfTie: boolean = true): Fraction {
         let duration: Fraction = new Fraction(0, 1);
         for (let idx: number = 0, len: number = this.VoiceEntries.length; idx < len; ++idx) {
             const voiceEntry: VoiceEntry = this.VoiceEntries[idx];
             for (let idx2: number = 0, len2: number = voiceEntry.Notes.length; idx2 < len2; ++idx2) {
                 const note: Note = voiceEntry.Notes[idx2];
-                if (note.NoteTie) {
+                if (untilEndOfTie && note.NoteTie) {
                     // only add notes from this and after this sse!!
                     const tieRestDuration: Fraction = Fraction.createFromFraction(note.Length);
                     let addFollowingNotes: boolean = false;
@@ -270,7 +270,7 @@ export class SourceStaffEntry {
     public get hasOnlyRests(): boolean {
         for (const voiceEntry of this.voiceEntries) {
             for (const note of voiceEntry.Notes) {
-                if (!note.isRest) {
+                if (!note.isRest()) {
                     return false;
                 }
             }

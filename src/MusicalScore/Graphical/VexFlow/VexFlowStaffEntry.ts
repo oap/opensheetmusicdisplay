@@ -8,6 +8,7 @@ import { unitInPixels } from "./VexFlowMusicSheetDrawer";
 import { VexFlowVoiceEntry } from "./VexFlowVoiceEntry";
 import { Note } from "../../VoiceData/Note";
 import { AccidentalEnum } from "../../../Common/DataObjects/Pitch";
+import { BoundingBox } from "../BoundingBox";
 
 export class VexFlowStaffEntry extends GraphicalStaffEntry {
     constructor(measure: VexFlowMeasure, sourceStaffEntry: SourceStaffEntry, staffEntryParent: VexFlowStaffEntry) {
@@ -37,18 +38,35 @@ export class VexFlowStaffEntry extends GraphicalStaffEntry {
                 }
                 gve.applyBordersFromVexflow(this.parentMeasure.ParentStaff.isJianpuStaff);
                     // we don't want the RelativePosition.y to be set for Jianpu measures, shifts note y positions
+                let isSecondaryWholeRest: boolean = false;
+                let bboxToAdjust: BoundingBox = this.PositionAndShape;
+                if (gve.notes[0].sourceNote.isWholeRest() && !this.hasOnlyRests()) {
+                    isSecondaryWholeRest = true;
+                    // continue; // also an option (simpler), but makes the voice entry bounding boxes very wrong (shifted)
+                    bboxToAdjust = gve.PositionAndShape;
+                    // don't use a whole rest's position for the staffentry.x if we also have a normal note in another voice (#1267)
+                    //   a more ideal solution would probably be to give a secondary whole note its own staffentry and staffentry position,
+                    //   since it's so different from a normal note which is also the first note of the measure.
+                    //   But we probably have some code that assumes there's only one staffentry per staff per timestamp.
+                    //   "A [[SourceStaffEntry]] is a container spanning all the [[VoiceEntry]]s at one timestamp for one [[StaffLine]]"
+                }
                 if (this.parentMeasure.ParentStaff.isTab) {
                     // the x-position could be finetuned for the cursor.
                     // somehow, gve.vfStaveNote.getBoundingBox() is null for a TabNote (which is a StemmableNote).
-                    this.PositionAndShape.RelativePosition.x = (gve.vfStaveNote.getAbsoluteX() + (<any>gve.vfStaveNote).glyph.getWidth()) / unitInPixels;
+                    bboxToAdjust.RelativePosition.x = (gve.vfStaveNote.getAbsoluteX() + (<any>gve.vfStaveNote).glyph.getWidth()) / unitInPixels;
                 } else {
-                    this.PositionAndShape.RelativePosition.x = gve.vfStaveNote.getBoundingBox().getX() / unitInPixels;
+                    bboxToAdjust.RelativePosition.x = gve.vfStaveNote.getBoundingBox().getX() / unitInPixels;
+                    if (isSecondaryWholeRest) {
+                        bboxToAdjust.RelativePosition.x -= stave.getNoteStartX() / unitInPixels;
+                        bboxToAdjust.RelativePosition.x -= 1.3;
+                        // fix whole rest bounding box for these cases, slightly hacky admittedly, probably depends on WholeRestXShiftVexflow
+                    }
                 }
                 const sourceNote: Note = gve.notes[0].sourceNote;
                 if (sourceNote.isRest() && sourceNote.Length.RealValue === this.parentMeasure.parentSourceMeasure.ActiveTimeSignature.RealValue) {
                     // whole rest: length = measure length. (4/4 in a 4/4 time signature, 3/4 in a 3/4 time signature, 1/4 in a 1/4 time signature, etc.)
                     // see Note.isWholeRest(), which is currently not safe
-                    this.PositionAndShape.RelativePosition.x +=
+                    bboxToAdjust.RelativePosition.x +=
                         this.parentMeasure.parentSourceMeasure.Rules.WholeRestXShiftVexflow - 0.1; // xShift from VexFlowConverter
                     gve.PositionAndShape.BorderLeft = -0.7;
                     gve.PositionAndShape.BorderRight = 0.7;
@@ -59,6 +77,9 @@ export class VexFlowStaffEntry extends GraphicalStaffEntry {
             }
         }
         this.PositionAndShape.RelativePosition.x -= lastBorderLeft;
+        // TODO sometimes subtracting lastBorderLeft fixes the x-position for lyrics spacing, sometimes it makes it wrong
+        //   e.g. wrong for Beethoven Geliebte measure 1 ("auf - dem", distance < width of "auf"), correct for measure 3 ("spä - hend")
+        //   this leads to a (lyrics) measure elongation of ~1.3 for measure 1, though it doesn't need any elongation (should be factor 1)
         this.PositionAndShape.calculateBoundingBox();
     }
 
@@ -86,13 +107,30 @@ export class VexFlowStaffEntry extends GraphicalStaffEntry {
 
     // should be called after VexFlowConverter.StaveNote
     public setModifierXOffsets(): void {
-        let notes: GraphicalNote[] = [];
+        // Grace notes are at different horizontal positions than other notes,
+        // so we calculate collision offsets separately for each grace note voice entry.
+        // Non-grace notes at the same timestamp share the same X position, so they're grouped together.
+        const nonGraceNotes: GraphicalNote[] = [];
+
         for (const gve of this.graphicalVoiceEntries) {
-            notes = notes.concat(gve.notes);
+            const isGrace: boolean = gve.parentVoiceEntry?.IsGrace ?? false;
+            if (isGrace) {
+                this.applyModifierOffsets(gve.notes);
+            } else {
+                nonGraceNotes.push(...gve.notes);
+            }
+        }
+
+        this.applyModifierOffsets(nonGraceNotes);
+    }
+
+    private applyModifierOffsets(notes: GraphicalNote[]): void {
+        if (notes.length === 0) {
+            return;
         }
         const staffLines: number[] = notes.map(n => n.staffLine);
-        const stringNumberOffsets: number[] = this.calculateModifierXOffsets(staffLines, 1);
         const fingeringOffsets: number[] = this.calculateModifierXOffsets(staffLines, 0.5);
+        const stringNumberOffsets: number[] = this.calculateModifierXOffsets(staffLines, 1);
         notes.forEach((note, i) => {
             note.baseFingeringXOffset = fingeringOffsets[i];
             note.baseStringNumberXOffset = stringNumberOffsets[i];

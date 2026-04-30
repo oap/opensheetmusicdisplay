@@ -28,6 +28,9 @@ const isInnerNoteIndex = (note, index) =>
 
 // Helper methods for rest positioning in ModifierContext.
 function shiftRestVertical(rest, note, dir) {
+  if (rest.note.shiftRestVerticalDisabled) {
+    return;
+  }
   const delta = (note.isrest ? 0.0 : 1.0) * dir;
 
   rest.line += delta;
@@ -124,7 +127,9 @@ export class StaveNote extends StemmableNote {
 
     // for two voice backward compatibility, ensure upper voice is stems up
     // for three voices, the voices must be in order (upper, middle, lower)
-    if (voices === 2 && noteU.stemDirection === -1 && noteL.stemDirection === 1) {
+    if (voices === 2 && noteU.stemDirection === -1 && noteL.stemDirection === 1 &&
+      !noteU.isrest && !noteL.isRest // no need to switch positions if one is a rest
+    ) {
       noteU = notesList[1];
       noteL = notesList[0];
     }
@@ -149,9 +154,15 @@ export class StaveNote extends StemmableNote {
         if (noteU.isrest) {
           // shift rest up
           shiftRestVertical(noteU, noteL, 1);
+          if (noteU.note.hasLedgerLinedRest) {
+            noteU.note.shiftRestVerticalDisabled = true; // don't shift again on re-render
+          }
         } else if (noteL.isrest) {
           // shift rest down
           shiftRestVertical(noteL, noteU, -1);
+          if (noteL.note.hasLedgerLinedRest) {
+            noteL.note.shiftRestVerticalDisabled = true; // don't shift again on re-render
+          }
         } else {
           xShift = voiceXShift;
           //Vexflowpatch: Instead of shifting notes, remove the appropriate flag.
@@ -176,8 +187,7 @@ export class StaveNote extends StemmableNote {
           // only stagger/x-shift if one of the notes is whole or half note and the other isn't. (or dots different)
           let staggerConditions = halfNoteCount === 1 || wholeNoteCount === 1 || noteU.note.dots !== noteL.note.dots;
           if (stagger_same_whole_notes) { // controlled by EngravingRules.StaggerSameWholeNotes. see declaration above
-            staggerConditions = staggerConditions || wholeNoteCount === 2;
-            // should be ||=, but appveyor says syntax error, doesn't know the operator.
+            staggerConditions ||= wholeNoteCount === 2;
           }
           if (lineDiff === 0 && staggerConditions) {
             noteL.note.setXShift(xShift);
@@ -399,6 +409,9 @@ export class StaveNote extends StemmableNote {
     // for displaced ledger lines
     this.use_default_head_x = false;
 
+    // VexFlowPatch: add optional padding to the right (e.g. for large lyrics)
+    this.paddingRight = 0;
+
     // Drawing
     this.note_heads = [];
     this.modifiers = [];
@@ -514,8 +527,15 @@ export class StaveNote extends StemmableNote {
         x_shift: noteProps.shift_right,
         stem_up_x_offset: noteProps.stem_up_x_offset,
         stem_down_x_offset: noteProps.stem_down_x_offset,
+        // VexFlowPatch: add option to shift notehead up or down (instead of stem in the variables above)
+        stem_up_y_shift: noteProps.stem_up_y_shift,
+        stem_down_y_shift: noteProps.stem_down_y_shift,
         line: noteProps.line,
       });
+      if (notehead.isLedgerLinedRest) {
+        this.hasLedgerLinedRest = true;
+      }
+      notehead.id = this.stem.id = Vex.Prefix(`${this.getAttribute("id")}-stem${i}`);
 
       this.note_heads[i] = notehead;
     }
@@ -565,7 +585,8 @@ export class StaveNote extends StemmableNote {
       if (lastLine === null) {
         lastLine = line;
       } else {
-        if (Math.abs(lastLine - line) === 0.5) {
+        if (Math.abs(lastLine - line) < 1) {
+          // half line (0.5) or unison (0.0). see https://github.com/vexflow/vexflow/pull/212
           this.displaced = true;
           props.displaced = true;
 
@@ -602,7 +623,8 @@ export class StaveNote extends StemmableNote {
     }
 
     const { width: w, modLeftPx, extraLeftPx } = this.getMetrics();
-    const x = this.getAbsoluteX() - modLeftPx - extraLeftPx;
+    // VexFlowPatch: also subtract paddingRight (newly added in VexFlowPatch) to not shift note bbox
+    const x = this.getAbsoluteX() - modLeftPx - extraLeftPx - this.paddingRight;
 
     let minY = 0;
     let maxY = 0;
@@ -951,7 +973,8 @@ export class StaveNote extends StemmableNote {
     if (this.preFormatted) return;
     if (this.modifierContext) this.modifierContext.preFormat();
 
-    let width = this.getGlyphWidth() + this.extraLeftPx + this.extraRightPx;
+    // VexFlowPatch: add optional padding to the right (e.g. for large lyrics), default 0.
+    let width = this.getGlyphWidth() + this.extraLeftPx + this.extraRightPx + this.paddingRight;
 
     // For upward flagged notes, the width of the flag needs to be added
     if (this.renderFlag && this.glyph.flag && this.beam === null && this.stem_direction === Stem.UP) {
@@ -1100,6 +1123,11 @@ export class StaveNote extends StemmableNote {
     const style = { ...stave.getStyle() || {}, ...this.getLedgerLineStyle() || {} };
     this.applyStyle(ctx, style);
 
+    // VexFlowPatch: add group for ledger lines
+    const ledgerLinesDrawn = highest_line >= 6 || lowest_line <= 0;
+    if (ledgerLinesDrawn) {
+      ctx.openGroup('ledgers', this.getAttribute('id') + "ledgers");
+    }
     // Draw ledger lines below the staff:
     for (let line = 6; line <= highest_line; ++line) {
       const normal = (non_displaced_x !== null) && (line <= highest_non_displaced_line);
@@ -1112,6 +1140,9 @@ export class StaveNote extends StemmableNote {
       const normal = (non_displaced_x !== null) && (line >= lowest_non_displaced_line);
       const displaced = (displaced_x !== null) && (line >= lowest_displaced_line);
       drawLedgerLine(stave.getYForNote(line), normal, displaced);
+    }
+    if (ledgerLinesDrawn) {
+      ctx.closeGroup();
     }
 
     this.restoreStyle(ctx, style);

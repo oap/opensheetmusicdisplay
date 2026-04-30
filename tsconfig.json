@@ -1,19 +1,23 @@
 {
   "compilerOptions": {
-    "target": "es2017",
+    "target": "es2020",
     "esModuleInterop": true,
     "module": "commonjs",
-    "moduleResolution": "node",
     "noUnusedLocals": true,
     "outDir": "build/dist",
     "declaration": true,
     "sourceMap": true,
+    "strict": false,
+    "strictPropertyInitialization": false,
     "typeRoots": ["./node_modules/@types"],
+    "types": ["mocha", "chai", "node", "minimatch"],
   },
+  "include": ["./test/", "./src"],
   "exclude": [
     "node_modules",
     "dist",
     "demo",
-    "build"
+    "build",
+    "./src/VexFlowPatch/"
   ]
 }

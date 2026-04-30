@@ -6,12 +6,14 @@ import { GraphicalStaffEntry } from "../GraphicalStaffEntry";
 import { unitInPixels } from "./VexFlowMusicSheetDrawer";
 import { NoteEnum } from "../../../Common/DataObjects/Pitch";
 import { Note } from "../../VoiceData/Note";
-import { ColoringModes } from "./../DrawingParameters";
+import { ColoringModes } from "../../../Common/Enums/ColoringModes";
 import { GraphicalNote } from "../GraphicalNote";
 import { EngravingRules } from "../EngravingRules";
+import { NoteHeadShape } from "../../VoiceData/Notehead";
 
 export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
     private mVexFlowStaveNote: VF.StemmableNote;
+    public vfGhostNotes: VF.GhostNote[]; // sometimes we need multiple ghost notes instead of just one note (vfStaveNote).
 
     constructor(parentVoiceEntry: VoiceEntry, parentStaffEntry: GraphicalStaffEntry, rules?: EngravingRules) {
         super(parentVoiceEntry, parentStaffEntry, rules);
@@ -35,12 +37,12 @@ export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
             this.PositionAndShape.BorderRight = (noteheadBeginX) / unitInPixels;
             // we don't want the RelativePosition.y to be set for Jianpu measures, shifts note y positions
         } else {
-            this.PositionAndShape.BorderLeft = -(modifierWidth + staveNote.width / 2) / unitInPixels; // Left of our X origin is the modifier
-            this.PositionAndShape.BorderRight = (boundingBox.w - modifierWidth) / unitInPixels; // Right of x origin is the note
-
             this.PositionAndShape.RelativePosition.y = boundingBox.y / unitInPixels;
             this.PositionAndShape.BorderTop = 0;
             this.PositionAndShape.BorderBottom = boundingBox.h / unitInPixels;
+            const halfStavenoteWidth: number = (staveNote.width - ((staveNote as any).paddingRight ?? 0)) / 2;
+            this.PositionAndShape.BorderLeft = -(modifierWidth + halfStavenoteWidth) / unitInPixels; // Left of our X origin is the modifier
+            this.PositionAndShape.BorderRight = (boundingBox.w - modifierWidth) / unitInPixels; // Right of x origin is the note
         }
     }
 
@@ -50,6 +52,22 @@ export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
 
     public get vfStaveNote(): VF.StemmableNote {
         return this.mVexFlowStaveNote;
+    }
+
+    /** Apply custom noteheads from Note.CustomNoteheadVFCode. This should happen before color(). */
+    public applyCustomNoteheads(): void {
+        const vfStaveNote: any = (<VexFlowVoiceEntry>(this as any)).vfStaveNote;
+        if (!vfStaveNote) {
+            return;
+        }
+        for (let i: number = 0; i < this.notes.length; i++) {
+            const note: Note = this.notes[i].sourceNote;
+            if (vfStaveNote.note_heads) { // see VexFlowConverter, needs Vexflow PR
+                if (note.CustomNoteheadVFCode) {
+                    (vfStaveNote.note_heads[i] as any).glyph_code = note.CustomNoteheadVFCode;
+                }
+            }
+        }
     }
 
     /** (Re-)color notes and stems by setting their Vexflow styles.
@@ -80,8 +98,8 @@ export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
                     noteheadColor = this.rules.ColoringSetCurrent.getValue(fundamentalNote);
                 }
             }
-            if (!note.sourceNote.PrintObject) {
-                noteheadColor = transparentColor; // transparent
+            if (!note.sourceNote.PrintObject || (note.sourceNote.Notehead?.Shape === NoteHeadShape.NONE)) {
+                noteheadColor = transparentColor; // transparent (for PrintObject=false or notehead="none")
             } else if (!noteheadColor // revert transparency after PrintObject was set to false, then true again
                 || noteheadColor === "#000000" // questionable, because you might want to set specific notes to black,
                                                // but unfortunately some programs export everything explicitly as black
@@ -98,14 +116,15 @@ export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
                     ", in measure #" + measureNumber);
             }*/
 
-            if (!sourceNoteNoteheadColor && this.rules.ColoringMode === ColoringModes.XML && note.sourceNote.PrintObject) {
+            if (!sourceNoteNoteheadColor && this.rules.ColoringMode === ColoringModes.XML &&
+                note.sourceNote.PrintObject && note.sourceNote.Notehead?.Shape !== NoteHeadShape.NONE) {
                 if (!note.sourceNote.isRest() && defaultColorNotehead) {
                     noteheadColor = defaultColorNotehead;
                 } else if (note.sourceNote.isRest() && defaultColorRest) {
                     noteheadColor = defaultColorRest;
                 }
             }
-            if (noteheadColor && note.sourceNote.PrintObject) {
+            if (noteheadColor && note.sourceNote.PrintObject && note.sourceNote.Notehead?.Shape !== NoteHeadShape.NONE) {
                 note.sourceNote.NoteheadColorCurrentlyRendered = noteheadColor;
             } else if (!noteheadColor) {
                 continue;
@@ -169,7 +188,7 @@ export class VexFlowVoiceEntry extends GraphicalVoiceEntry {
         }
         let stemTransparent: boolean = true;
         for (const note of this.parentVoiceEntry.Notes) {
-            if (note.PrintObject) {
+            if (note.PrintObject && note.Notehead?.Shape !== NoteHeadShape.NONE) {
                 stemTransparent = false;
                 break;
             }

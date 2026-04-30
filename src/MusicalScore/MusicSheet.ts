@@ -18,12 +18,9 @@ import {Note} from "./VoiceData/Note";
 import {VoiceEntry} from "./VoiceData/VoiceEntry";
 import log from "loglevel";
 import { TextAlignmentEnum } from "../Common/Enums/TextAlignment";
+import { PlaybackSettings } from "../Common/DataObjects/PlaybackSettings";
 
 // FIXME Andrea: Commented out some unnecessary/not-ported-yet code, have a look at (*)
-
-export class PlaybackSettings {
-    public rhythm: Fraction;
-}
 
 /**
  * This is the representation of a complete piece of sheet music.
@@ -81,6 +78,16 @@ export class MusicSheet /*implements ISettableMusicSheet, IComparable<MusicSheet
     // (*) private musicSheetParameterChangedDelegate: MusicSheetParameterChangedDelegate;
     /* Whether BPM info is present in the sheet. If it is set to false, each measure's BPM was set to a default of 120. */
     private hasBPMInfo: boolean;
+    /** Global factor / scale by which all measure widths will be scaled.
+     * (e.g. 0.7 = all measures are only 70% as long)
+     * This is similar to SourceMeasure.widthFactor,
+     *   which only applies to one measure and is multiplicative to the global factor.
+     *   (so if globalWidthFactor is 0.7 and measure.widthFactor is 0.7, that measure's length will be 49% as long)
+     * As with measure.widthFactor, use this with caution, as it can cause overlaps, especially with lyrics.
+     */
+    public MeasureWidthFactor: number = 1.0;
+    /** Ignore tempo instructions like metronome numbers, e.g. because a bpm was set in the UI */
+    public IgnoreTempoInstructions: boolean = false;
 
     /**
      * Get the global index within the music sheet for this staff.
@@ -104,6 +111,9 @@ export class MusicSheet /*implements ISettableMusicSheet, IComparable<MusicSheet
     }
     public get DynListStaves(): DynamicsContainer[][] {
         return this.dynListStaves;
+    }
+    public set TimestampSortedTempoExpressionsList(value: MultiTempoExpression[]) {
+        this.timestampSortedTempoExpressionsList = value;
     }
     public get TimestampSortedTempoExpressionsList(): MultiTempoExpression[] {
         return this.timestampSortedTempoExpressionsList;
