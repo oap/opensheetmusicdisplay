@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jianpu Player Demo</title>
+    <!-- Include Tone.js for Audio Playback -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <!-- Include the minified built OSMD module -->
     <script src="js/opensheetmusicdisplay.min.js"></script>
+    <!-- Include our custom player script -->
+    <script src="player.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -22,6 +26,14 @@
 </head>
 <body>
     <h1>OpenSheetMusicDisplay: Jianpu Demo</h1>
+
+    <!-- Player Controls -->
+    <div id="controls" style="margin-bottom: 20px;">
+        <button id="btn-play" style="font-size: 16px; padding: 5px 15px;">Play</button>
+        <button id="btn-pause" style="font-size: 16px; padding: 5px 15px;">Pause</button>
+        <button id="btn-stop" style="font-size: 16px; padding: 5px 15px;">Stop</button>
+    </div>
+
     <div id="osmd-container"></div>
 
     <script>
@@ -35,6 +47,7 @@
                     JianpuAlwaysUsed: true // Force Jianpu formatting
                 }
             });
+            window.osmd = osmd; // expose for player.js
 
             // Load the Twinkle Twinkle Little Star MusicXML and render it
             osmd.load("Twinkle_Twinkle_Little_Star.musicxml").then(function () {
