@@ -3,7 +3,17 @@ document.addEventListener("DOMContentLoaded", async function () {
     const synth = new Tone.PolySynth(Tone.Synth).toDestination();
     let isPlaying = false;
     let playLoopTimeout;
-    const currentBpm = 120; // 120 Quarter notes per minute
+    let currentBpm = 120; // 120 Quarter notes per minute
+
+    // Listen to BPM slider
+    const bpmSlider = document.getElementById("bpm-slider");
+    const bpmDisplay = document.getElementById("bpm-display");
+    if (bpmSlider) {
+        bpmSlider.addEventListener("input", (e) => {
+            currentBpm = parseInt(e.target.value, 10);
+            if (bpmDisplay) bpmDisplay.innerText = currentBpm;
+        });
+    }
 
     // We retrieve the osmd instance loaded from index.html
     // Wait until OSMD is fully loaded the score.
@@ -17,6 +27,28 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     function initPlayer() {
         const osmd = window.osmd;
+
+        // Populate track selectors
+        const trackSelectorsDiv = document.getElementById("track-selectors");
+        if (trackSelectorsDiv && osmd.Sheet && osmd.Sheet.Instruments) {
+            osmd.Sheet.Instruments.forEach((instrument, index) => {
+                const label = document.createElement("label");
+                label.style.marginRight = "15px";
+                
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.checked = true; // default play all
+                checkbox.dataset.instrumentId = instrument.IdString; // Note: case is IdString
+                
+                const span = document.createElement("span");
+                let name = instrument.Name || instrument.NameLabel?.text || `Instrument ${index + 1}`;
+                span.innerText = name;
+                
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                trackSelectorsDiv.appendChild(label);
+            });
+        }
 
         document.getElementById("btn-play").addEventListener("click", async () => {
             await Tone.start();
@@ -86,7 +118,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 
             notes.forEach(note => {
                 if (!note.isRest() && note.Pitch) {
-                    frequencies.push(note.Pitch.Frequency);
+                    let playNote = true;
+                    // Filter based on track checkboxes
+                    if (note.ParentStaffEntry && note.ParentStaffEntry.ParentStaff && note.ParentStaffEntry.ParentStaff.ParentInstrument) {
+                        const instrumentId = note.ParentStaffEntry.ParentStaff.ParentInstrument.IdString;
+                        const checkbox = document.querySelector(`input[data-instrument-id="${instrumentId}"]`);
+                        if (checkbox && !checkbox.checked) {
+                            playNote = false;
+                        }
+                    }
+
+                    if (playNote) {
+                        frequencies.push(note.Pitch.Frequency);
+                    }
                 }
                 
                 // Quarter note = 0.25 RealValue. 

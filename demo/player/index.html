@@ -32,6 +32,17 @@
         <button id="btn-play" style="font-size: 16px; padding: 5px 15px;">Play</button>
         <button id="btn-pause" style="font-size: 16px; padding: 5px 15px;">Pause</button>
         <button id="btn-stop" style="font-size: 16px; padding: 5px 15px;">Stop</button>
+        
+        <span style="margin-left: 20px; font-size: 16px;">
+            <label for="bpm-slider">BPM: </label>
+            <input type="range" id="bpm-slider" min="30" max="240" value="120" />
+            <span id="bpm-display">120</span>
+        </span>
+    </div>
+
+    <!-- Track Selectors -->
+    <div id="track-selectors" style="margin-bottom: 20px;">
+        <!-- Checkboxes will be populated here by player.js -->
     </div>
 
     <div id="osmd-container"></div>
