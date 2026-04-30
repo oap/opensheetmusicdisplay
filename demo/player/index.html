@@ -51,6 +51,27 @@
             <input type="range" id="bpm-slider" min="30" max="240" value="120" />
             <span id="bpm-display">120</span>
         </span>
+        
+        <span style="margin-left: 20px; font-size: 16px;">
+            <label for="transpose">Transpose: </label>
+            <input type="number" id="transpose" value="0" style="width: 50px; font-size: 16px;" />
+            <button id="transpose-btn" style="font-size: 14px; padding: 3px 10px;">Apply</button>
+        </span>
+        
+        <span style="margin-left: 20px; font-size: 16px;">
+            <label for="selectPageSize">Page Size: </label>
+            <select id="selectPageSize" style="font-size: 16px; padding: 3px;">
+                <option value="endless">endless</option>
+                <option value="A3 P">A3 Portrait</option>
+                <option value="A3 L">A3 Landscape</option>
+                <option value="A4 P">A4 Portrait</option>
+                <option value="A4 L">A4 Landscape</option>
+                <option value="A5 P">A5 Portrait</option>
+                <option value="A5 L">A5 Landscape</option>
+                <option value="Letter P">Letter Portrait</option>
+                <option value="Letter L">Letter Landscape</option>
+            </select>
+        </span>
     </div>
 
     <!-- Track Selectors -->

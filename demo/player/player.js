@@ -50,6 +50,30 @@ document.addEventListener("DOMContentLoaded", async function () {
             });
         }
 
+        // Page size controls
+        const selectPageSize = document.getElementById("selectPageSize");
+        if (selectPageSize) {
+            selectPageSize.addEventListener("change", (e) => {
+                const value = e.target.value;
+                osmd.setPageFormat(value);
+                osmd.render();
+            });
+        }
+
+        // Transpose controls
+        const transposeBtn = document.getElementById("transpose-btn");
+        const transposeInput = document.getElementById("transpose");
+        if (transposeBtn && transposeInput) {
+            transposeBtn.addEventListener("click", () => {
+                const transposeValue = parseInt(transposeInput.value, 10);
+                if (!isNaN(transposeValue) && osmd.Sheet) {
+                    osmd.Sheet.Transpose = transposeValue;
+                    osmd.updateGraphic();
+                    osmd.render();
+                }
+            });
+        }
+
         document.getElementById("btn-play").addEventListener("click", async () => {
             await Tone.start();
             if (!isPlaying) {
@@ -117,7 +141,8 @@ document.addEventListener("DOMContentLoaded", async function () {
             const frequencies = [];
 
             notes.forEach(note => {
-                if (!note.isRest() && note.Pitch) {
+                const pitchToPlay = note.TransposedPitch || note.Pitch;
+                if (!note.isRest() && pitchToPlay) {
                     let playNote = true;
                     // Filter based on track checkboxes
                     if (note.ParentStaffEntry && note.ParentStaffEntry.ParentStaff && note.ParentStaffEntry.ParentStaff.ParentInstrument) {
@@ -129,7 +154,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                     }
 
                     if (playNote) {
-                        frequencies.push(note.Pitch.Frequency);
+                        frequencies.push(pitchToPlay.Frequency);
                     }
                 }
                 
